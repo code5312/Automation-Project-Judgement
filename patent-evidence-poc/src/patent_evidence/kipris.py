@@ -23,9 +23,10 @@ class KiprisClient:
 
     @classmethod
     def from_env(cls) -> "KiprisClient":
+        common_key = os.getenv("KIPRIS_API_KEY")
         return cls(
-            service_key=os.getenv("KIPRIS_SERVICE_KEY"),
-            citation_access_key=os.getenv("KIPRIS_ACCESS_KEY"),
+            service_key=os.getenv("KIPRIS_SERVICE_KEY") or common_key,
+            citation_access_key=os.getenv("KIPRIS_ACCESS_KEY") or common_key,
         )
 
     @staticmethod
