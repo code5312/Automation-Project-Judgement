@@ -73,6 +73,14 @@ class CitationMappingTests(unittest.TestCase):
         self.assertEqual(params["accessKey"], "test-key")
         self.assertNotIn("ServiceKey", params)
 
+    def test_cited_lookup_includes_utility_models(self):
+        client = KiprisClient(publication_access_key="test-key")
+        with patch.object(KiprisClient, "_get", return_value="<response><resultCode>00</resultCode></response>") as get:
+            client.registration_number_search_xml("2004329850000")
+            self.assertEqual(get.call_args.args[1]["utility"], "true")
+            client.open_number_search_xml("2004329850000")
+            self.assertEqual(get.call_args.args[1]["utility"], "true")
+
     def test_registered_citation_uses_grant_publication_date(self):
         citation = {
             "query_application_number": "1020190174967",

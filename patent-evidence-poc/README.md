@@ -113,3 +113,13 @@ python scripts/evaluate_real_pilot.py --tokenizer hybrid
 ```
 
 평가 출력은 Git에서 제외되는 `output/real_pilot_b0*.md`·`.json`입니다. API 키는 `.env`를 직접 읽지 않으므로 호출 전 현재 셸의 `KIPRIS_API_KEY` 환경변수에 설정해야 합니다. 표현 변형 실험 결과와 한계는 [개인 작업기록](docs/personal_worklog.md), 평가셋 편향은 [프로토콜](docs/real_dataset_protocol.md)에 적었습니다.
+
+기존 21건과 겹치지 않는 9건 점검은 다음 인수로 실행합니다. 새 질의·인용 조회에는 API 키가 필요합니다. `--refresh-empty`는 특허만 조회하던 이전 코드가 저장한 빈 결과를 실용신안 포함 조회로 다시 확인할 때 사용합니다.
+
+```bash
+python scripts/sample_pilot_cases.py --target-per-group 3 --max-inspect-per-group 30 --seed 20260929 --page-starts 101,201 --exclude-sampling pilot_case_sampling.json --output-name holdout_case_sampling.json
+python scripts/fetch_pilot_documents.py --from-sampling --sampling-file holdout_case_sampling.json --output-name holdout_document_linkage.json --refresh-empty
+python scripts/evaluate_real_pilot.py --sampling-file holdout_case_sampling.json --linkage-file holdout_document_linkage.json --supplementary-linkage-file pilot_document_linkage.json --output-prefix real_holdout_b0 --tokenizer word
+```
+
+마지막 명령의 `--tokenizer`를 `korean-ngram`, `hybrid`로 각각 바꿔 동일 후보집에서 비교합니다. 9건에서는 단어 BM25가 Recall@10 0.731, n-gram이 0.722였다. 자세한 값과 해석은 개인 작업기록에 있습니다.

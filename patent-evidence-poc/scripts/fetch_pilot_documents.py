@@ -69,6 +69,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("application_numbers", nargs="*", help="Already cached query cases")
     parser.add_argument("--from-sampling", action="store_true", help="Use cases in pilot_case_sampling.json")
+    parser.add_argument("--sampling-file", default="pilot_case_sampling.json")
+    parser.add_argument("--output-name", default="pilot_document_linkage.json")
+    parser.add_argument("--refresh-empty", action="store_true", help="Retry cached zero-result cited lookups")
     parser.add_argument("--raw-dir", type=Path, default=ROOT / "data" / "raw")
     parser.add_argument("--citation-types", default="E0802,E0805")
     args = parser.parse_args()
@@ -78,7 +81,7 @@ def main() -> int:
     if args.from_sampling:
         if args.application_numbers:
             parser.error("Use either application numbers or --from-sampling")
-        sampling = json.loads((args.raw_dir / "pilot_case_sampling.json").read_text(encoding="utf-8"))
+        sampling = json.loads((args.raw_dir / args.sampling_file).read_text(encoding="utf-8"))
         args.application_numbers = [
             number for group in sampling["groups"].values() for number in group["selected"]
         ]
@@ -94,6 +97,14 @@ def main() -> int:
         cache = args.raw_dir / f"cited_{kind}_{value}.xml"
         if cache.exists():
             xml = cache.read_text(encoding="utf-8")
+            if args.refresh_empty and not parse_items(xml):
+                xml = (
+                    client.open_number_search_xml(value)
+                    if kind == "open_number"
+                    else client.registration_number_search_xml(value)
+                )
+                cache.write_text(xml, encoding="utf-8")
+                fetched += 1
         else:
             xml = (
                 client.open_number_search_xml(value)
@@ -113,7 +124,7 @@ def main() -> int:
         "new_api_lookups": fetched,
         "linkage": linked,
     }
-    output = args.raw_dir / "pilot_document_linkage.json"
+    output = args.raw_dir / args.output_name
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({
         "queries": len(args.application_numbers),

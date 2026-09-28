@@ -105,7 +105,7 @@ class KiprisClient:
             "openNumberSearchInfo",
             openNumber=open_number,
             patent="true",
-            utility="false",
+            utility="true",
             docsStart="1",
             docsCount="10",
         )
@@ -118,7 +118,7 @@ class KiprisClient:
             "registrationNumberSearchInfo",
             registerNumber=register_number,
             patent="true",
-            utility="false",
+            utility="true",
             docsStart="1",
             docsCount="10",
         )

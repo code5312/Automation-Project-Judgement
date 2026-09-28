@@ -1,4 +1,4 @@
-"""Evaluate title/abstract BM25 on the cached 21-case exploratory pilot.
+"""Evaluate title/abstract BM25 on cached exploratory or held-out cases.
 
 The 3 keyword searches and all known positives form a deliberately biased
 candidate pool. E0802/E0805 are search-report citation proxies, not final
@@ -66,14 +66,19 @@ def load_corpus(raw_dir: Path, linkage: list[dict]) -> tuple[dict[str, dict], di
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tokenizer", choices=("word", "korean-ngram", "hybrid"), default="word")
+    parser.add_argument("--sampling-file", default="pilot_case_sampling.json")
+    parser.add_argument("--linkage-file", default="pilot_document_linkage.json")
+    parser.add_argument("--supplementary-linkage-file", help="Add these cited documents to the corpus only")
+    parser.add_argument("--output-prefix", default="real_pilot_b0")
+    parser.add_argument("--exclude-unlinked", action="store_true", help="Exclude and audit unresolved citation rows")
     args = parser.parse_args()
     tokenizers = {"word": tokenize, "korean-ngram": tokenize_korean_ngrams}
     tokenizer = tokenizers.get(args.tokenizer)
     raw_dir = ROOT / "data" / "raw"
     output_dir = ROOT / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    source = json.loads((raw_dir / "pilot_document_linkage.json").read_text(encoding="utf-8"))
-    sampling = json.loads((raw_dir / "pilot_case_sampling.json").read_text(encoding="utf-8"))
+    source = json.loads((raw_dir / args.linkage_file).read_text(encoding="utf-8"))
+    sampling = json.loads((raw_dir / args.sampling_file).read_text(encoding="utf-8"))
     group_by_number = {
         number: group for group, details in sampling["groups"].items()
         for number in details["selected"]
@@ -81,11 +86,19 @@ def main() -> int:
     if source["citation_type_codes"] != ["E0802", "E0805"]:
         raise ValueError("This evaluation requires the E0802/E0805 proxy policy")
     linkage = source["linkage"]
-    corpus, corpus_stats = load_corpus(raw_dir, linkage)
+    invalid = [row for row in linkage
+               if row["match_count"] != 1 or not row["published_before_query_filing"]]
+    if invalid and not args.exclude_unlinked:
+        raise ValueError(f"{len(invalid)} citation rows are unresolved or time-ineligible")
+    valid_linkage = [row for row in linkage if row not in invalid]
+    supplementary = []
+    if args.supplementary_linkage_file:
+        extra = json.loads((raw_dir / args.supplementary_linkage_file).read_text(encoding="utf-8"))
+        supplementary = [row for row in extra["linkage"]
+                         if row["match_count"] == 1 and row["published_before_query_filing"]]
+    corpus, corpus_stats = load_corpus(raw_dir, valid_linkage + supplementary)
     gold_by_query: dict[str, set[str]] = defaultdict(set)
-    for row in linkage:
-        if row["match_count"] != 1 or not row["published_before_query_filing"]:
-            raise ValueError(f"Invalid citation link for {row['query_application_number']}")
+    for row in valid_linkage:
         gold_by_query[row["query_application_number"]].add(row["matched_application_number"])
 
     results = []
@@ -130,7 +143,8 @@ def main() -> int:
     evaluation = evaluate_cases(results, ks=(10, 20, 50))
     evaluation["protocol"] = {
         "candidate_source": "first 300 results each for 데이터, 반도체, 측정 + known positive documents",
-        "selection": "7 citation-positive cases in each of G06, H01/H10, G01; fixed seed 20260928",
+        "selection": f"citation-positive cases in G06, H01/H10, G01; seed {sampling['seed']}; "
+                     f"page starts {sampling.get('page_starts', [1])}",
         "label": "domestic E0802/E0805 search-report citation proxy; final examiner relevance unverified",
         "retrieval": f"B0 title+abstract {args.tokenizer} BM25"
                      + (" with equal-weight RRF(k=60)" if args.tokenizer == "hybrid" else ""),
@@ -139,8 +153,17 @@ def main() -> int:
                         "not a representative performance estimate"],
     }
     evaluation["corpus"] = corpus_stats
+    evaluation["excluded_citation_rows"] = [
+        {"query_application_number": row["query_application_number"],
+         "lookup_kind": row["lookup_kind"], "lookup_value": row["lookup_value"],
+         "match_count": row["match_count"],
+         "published_before_query_filing": row["published_before_query_filing"]}
+        for row in invalid
+    ]
     evaluation["summary"] = {
         "cases": len(results), "citation_rows": len(linkage),
+        "eligible_citation_rows": len(valid_linkage),
+        "excluded_citation_rows": len(invalid),
         "unique_case_gold_pairs": sum(gold_counts),
         "candidate_count_min": min(candidate_counts),
         "candidate_count_median": statistics.median(candidate_counts),
@@ -157,14 +180,15 @@ def main() -> int:
             if doc_id in raw["gold_doc_ids"]
         )
     suffix = {"word": "", "korean-ngram": "_korean_ngram", "hybrid": "_hybrid"}[args.tokenizer]
-    path = output_dir / f"real_pilot_b0{suffix}.json"
+    path = output_dir / f"{args.output_prefix}{suffix}.json"
     path.write_text(json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
-        f"# KIPRIS 21건 탐색 파일럿 · B0 {args.tokenizer} 결과",
+        f"# KIPRIS {len(results)}건 탐색 평가 · B0 {args.tokenizer} 결과",
         "",
-        "- 질의: G06·H01/H10·G01 각 7건, 총 21건. 인용이 있는 사례만 선택.",
+        f"- 질의: G06·H01/H10·G01에서 인용이 있는 사례만 선택. 시드 {sampling['seed']}, 검색 시작 위치 {sampling.get('page_starts', [1])}.",
         "- 후보: `데이터`·`반도체`·`측정` 검색 각 300행, 중복 제거 후 인용 정답 문헌 주입.",
         "- 정답 대용: 국내 E0802·E0805 인용, 출원일 이전 공개 확인. 심사관 최종 판단과 무관성 정답은 미확인.",
+        f"- 연결·시점 미확인 인용 {len(invalid)}행 제외. 상세는 JSON의 `excluded_citation_rows`에 보존.",
         f"- 검색: 제목+초록 {args.tokenizer} BM25. 질의 출원일 이후 공개 문헌과 자기 문헌 제외.",
         "- 제한: 검색어 중심 후보군·정답 주입·인용 양성 사례 선택. 아래 수치는 대표 성능이 아닌 파이프라인 탐색 결과.",
         "",
@@ -173,7 +197,7 @@ def main() -> int:
         f"| 검색 결과 고유 출원번호 | {corpus_stats['search_unique_applications']} |",
         f"| 인용 문헌 추가 후 고유 출원번호 | {corpus_stats['combined_unique_applications']} |",
         f"| 질의별 시간 적격 후보 수 (최소/중앙/최대) | {min(candidate_counts)} / {statistics.median(candidate_counts):g} / {max(candidate_counts)} |",
-        f"| 인용행 / 질의·문헌 고유 쌍 | {len(linkage)} / {sum(gold_counts)} |",
+        f"| 인용행 / 적격 인용행 / 질의·문헌 고유 쌍 | {len(linkage)} / {len(valid_linkage)} / {sum(gold_counts)} |",
     ]
     for metric, value in evaluation["aggregate"].items():
         lines.append(f"| {metric.upper()} | {value:.3f} |")
@@ -186,7 +210,7 @@ def main() -> int:
             f"{len(case['gold_doc_ids'])} | {case['first_gold_rank']} | "
             f"{metrics['recall@10']:.2f} | {metrics['recall@20']:.2f} | {metrics['recall@50']:.2f} |"
         )
-    (output_dir / f"real_pilot_b0{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output_dir / f"{args.output_prefix}{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps({"corpus": corpus_stats, "summary": evaluation["summary"],
                       "aggregate": evaluation["aggregate"], "report": str(path)},
                      ensure_ascii=False, indent=2))

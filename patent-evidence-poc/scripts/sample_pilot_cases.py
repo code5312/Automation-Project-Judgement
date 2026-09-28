@@ -29,14 +29,20 @@ GROUPS = {
 PROXY_TYPES = {"E0802", "E0805"}
 
 
-def candidates(raw_dir: Path, label: str, prefixes: tuple[str, ...], seed: int) -> list[dict]:
-    rows = parse_items((raw_dir / f"candidate_search_{label}_100_start1.xml").read_text(encoding="utf-8"))
+def candidates(raw_dir: Path, label: str, prefixes: tuple[str, ...], seed: int,
+               starts: tuple[int, ...], excluded: set[str]) -> list[dict]:
+    rows = []
+    for start in starts:
+        rows.extend(parse_items(
+            (raw_dir / f"candidate_search_{label}_100_start{start}.xml").read_text(encoding="utf-8")
+        ))
     eligible = [
         row for row in rows
         if row.get("InternationalpatentclassificationNumber", "").startswith(prefixes)
         and row.get("ApplicationDate", "")[:4].isdigit()
         and 2010 <= int(row["ApplicationDate"][:4]) <= 2021
         and row.get("ApplicationNumber")
+        and row["ApplicationNumber"] not in excluded
         and row.get("InventionName", "").strip()
         and row.get("Abstract", "").strip()
     ]
@@ -61,18 +67,29 @@ def main() -> int:
     parser.add_argument("--target-per-group", type=int, default=7)
     parser.add_argument("--max-inspect-per-group", type=int, default=25)
     parser.add_argument("--seed", type=int, default=20260928)
+    parser.add_argument("--page-starts", default="1", help="Comma-separated cached docsStart offsets")
+    parser.add_argument("--exclude-sampling", help="Sampling JSON whose selected cases must be excluded")
+    parser.add_argument("--output-name", default="pilot_case_sampling.json")
     parser.add_argument("--raw-dir", type=Path, default=ROOT / "data" / "raw")
     args = parser.parse_args()
     if args.target_per_group < 1 or args.max_inspect_per_group < 1:
         parser.error("Targets and inspection caps must be positive")
+    starts = tuple(int(value) for value in args.page_starts.split(","))
+    if not starts or any(value < 1 for value in starts):
+        parser.error("Page starts must be positive")
+    excluded = set()
+    if args.exclude_sampling:
+        previous = json.loads((args.raw_dir / args.exclude_sampling).read_text(encoding="utf-8"))
+        excluded = {number for group in previous["groups"].values() for number in group["selected"]}
 
     client = KiprisClient.from_env()
-    audit = {"seed": args.seed, "groups": {}}
+    audit = {"seed": args.seed, "page_starts": starts,
+             "excluded_sampling": args.exclude_sampling, "groups": {}}
     new_calls = 0
     for group, (label, prefixes) in GROUPS.items():
         selected = []
         inspected = []
-        pool = candidates(args.raw_dir, label, prefixes, args.seed)
+        pool = candidates(args.raw_dir, label, prefixes, args.seed, starts, excluded)
         for row in pool[:args.max_inspect_per_group]:
             if len(selected) >= args.target_per_group:
                 break
@@ -107,7 +124,7 @@ def main() -> int:
         print(group, "pool", len(pool), "inspected", len(inspected), "selected", len(selected))
 
     audit["new_api_calls"] = new_calls
-    output = args.raw_dir / "pilot_case_sampling.json"
+    output = args.raw_dir / args.output_name
     output.write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
     print("new_api_calls", new_calls, "report", output)
     return 0
