@@ -6,7 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.patent_evidence.citations import citation_to_lookup
-from src.patent_evidence.dataset import parse_domestic_citation_lookups
+from src.patent_evidence.dataset import (
+    citation_division_counts,
+    parse_domestic_citation_lookups,
+    select_gold_candidates,
+)
 from src.patent_evidence.xmlutil import parse_items
 
 
@@ -35,22 +39,44 @@ class CitationMappingTests(unittest.TestCase):
         self.assertEqual(rows[0]["applicationNumber"], "1020200000001")
         self.assertEqual(rows[0]["inventionTitle"], "테스트")
 
-    def test_citation_xml_to_domestic_lookup(self):
+    def test_citation_xml_preserves_division_and_excludes_foreign(self):
         xml = """<response><body><items>
         <item>
           <standardCitationLiteratureCountryCode>KR</standardCitationLiteratureCountryCode>
           <standardCitationIdentificationCode>A1</standardCitationIdentificationCode>
           <standardCitationLiteraturenumber>1020200012345</standardCitationLiteraturenumber>
+          <standardCitationDivisionCodeName>EXAMINER_FINAL</standardCitationDivisionCodeName>
+        </item>
+        <item>
+          <standardCitationLiteratureCountryCode>KR</standardCitationLiteratureCountryCode>
+          <standardCitationIdentificationCode>B1</standardCitationIdentificationCode>
+          <standardCitationLiteraturenumber>101234567</standardCitationLiteraturenumber>
+          <standardCitationDivisionCodeName>APPLICANT</standardCitationDivisionCodeName>
         </item>
         <item>
           <standardCitationLiteratureCountryCode>US</standardCitationLiteratureCountryCode>
           <standardCitationIdentificationCode>A1</standardCitationIdentificationCode>
           <standardCitationLiteraturenumber>US123</standardCitationLiteraturenumber>
+          <standardCitationDivisionCodeName>EXAMINER_FINAL</standardCitationDivisionCodeName>
         </item>
         </items></body></response>"""
         rows = parse_domestic_citation_lookups(xml)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["lookup_kind"], "open_number")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            citation_division_counts(rows),
+            {"APPLICANT": 1, "EXAMINER_FINAL": 1},
+        )
+
+        gold = select_gold_candidates(
+            rows,
+            allowed_division_names={"EXAMINER_FINAL"},
+        )
+        self.assertEqual(len(gold), 1)
+        self.assertEqual(gold[0]["lookup_kind"], "open_number")
+
+    def test_gold_policy_cannot_be_implicit(self):
+        with self.assertRaises(ValueError):
+            select_gold_candidates([], allowed_division_names=set())
 
 
 if __name__ == "__main__":
