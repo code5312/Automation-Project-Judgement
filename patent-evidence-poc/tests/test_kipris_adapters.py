@@ -1,0 +1,57 @@
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.patent_evidence.citations import citation_to_lookup
+from src.patent_evidence.dataset import parse_domestic_citation_lookups
+from src.patent_evidence.xmlutil import parse_items
+
+
+class CitationMappingTests(unittest.TestCase):
+    def test_open_publication_mapping(self):
+        value = citation_to_lookup("KR", "A1", "10-2020-0012345")
+        self.assertIsNotNone(value)
+        self.assertEqual(value.lookup_kind, "open_number")
+        self.assertEqual(value.lookup_value, "1020200012345")
+
+    def test_registration_mapping(self):
+        value = citation_to_lookup("KR", "B1", "10-1234567")
+        self.assertIsNotNone(value)
+        self.assertEqual(value.lookup_kind, "registration_number")
+        self.assertEqual(value.lookup_value, "101234567")
+
+    def test_foreign_is_excluded_from_korean_v1(self):
+        self.assertIsNone(citation_to_lookup("US", "A1", "US123456"))
+
+    def test_xml_parser_is_namespace_tolerant(self):
+        xml = """<response xmlns="urn:test"><body><items><item>
+        <applicationNumber>1020200000001</applicationNumber>
+        <inventionTitle>테스트</inventionTitle>
+        </item></items></body></response>"""
+        rows = parse_items(xml)
+        self.assertEqual(rows[0]["applicationNumber"], "1020200000001")
+        self.assertEqual(rows[0]["inventionTitle"], "테스트")
+
+    def test_citation_xml_to_domestic_lookup(self):
+        xml = """<response><body><items>
+        <item>
+          <standardCitationLiteratureCountryCode>KR</standardCitationLiteratureCountryCode>
+          <standardCitationIdentificationCode>A1</standardCitationIdentificationCode>
+          <standardCitationLiteraturenumber>1020200012345</standardCitationLiteraturenumber>
+        </item>
+        <item>
+          <standardCitationLiteratureCountryCode>US</standardCitationLiteratureCountryCode>
+          <standardCitationIdentificationCode>A1</standardCitationIdentificationCode>
+          <standardCitationLiteraturenumber>US123</standardCitationLiteraturenumber>
+        </item>
+        </items></body></response>"""
+        rows = parse_domestic_citation_lookups(xml)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["lookup_kind"], "open_number")
+
+
+if __name__ == "__main__":
+    unittest.main()
