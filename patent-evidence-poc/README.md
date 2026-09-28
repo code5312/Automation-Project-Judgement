@@ -17,7 +17,7 @@
 현재 `data/*_fixture.jsonl`은 **파이프라인 검증용 합성 데이터**입니다.
 실제 KIPRIS 특허/심사인용문헌 데이터로 성능을 주장하기 위한 평가셋이 아닙니다.
 
-2026-09-28 현재 KIPRIS 실 API 10건 파일럿에서 공보·인용문헌 조회와 국내 공보 재연결을 확인했습니다. **실데이터 검색 성능은 아직 측정하지 않았습니다.** 진행 경과와 한계는 [개인 작업기록](docs/personal_worklog.md)에 정리했습니다.
+2026-09-28 현재 KIPRIS 실 API의 **21건 탐색 사례**에서 인용 74행을 국내 공보 53건으로 재연결하고, 시간 조건을 적용한 B0 검색을 처음 측정했습니다. 세 검색어의 결과에 알려진 정답을 넣은 실험이라 대표 성능으로 해석할 수 없습니다. 진행 경과와 한계는 [개인 작업기록](docs/personal_worklog.md)에 정리했습니다.
 
 ## 왜 이 순서인가
 
@@ -100,3 +100,14 @@ python scripts/fetch_pilot_documents.py 1020140170841 1020060037777 102009001297
 ```
 
 이 파일의 E0802·E0805는 **선행기술조사 관련 인용 proxy**일 뿐 심사관 최종 정답이 아닙니다.
+
+21건 탐색셋의 후보 문헌 수집과 B0 평가는 다음과 같이 재현합니다. `sample_pilot_cases.py`는 최초 실행 시 KIPRIS API 호출이 필요하며, `fetch_candidate_pool.py`는 100건씩 1·101·201 위치를 사용합니다. `evaluate_real_pilot.py`는 저장된 XML만 사용합니다.
+
+```bash
+python scripts/fetch_candidate_pool.py
+python scripts/sample_pilot_cases.py
+python scripts/fetch_pilot_documents.py --from-sampling
+python scripts/evaluate_real_pilot.py
+```
+
+출력은 Git에서 제외되는 `output/real_pilot_b0.md`·`.json`입니다. API 키는 `.env`를 직접 읽지 않으므로 호출 전 현재 셸의 `KIPRIS_API_KEY` 환경변수에 설정해야 합니다. 절차와 편향은 [프로토콜](docs/real_dataset_protocol.md)에 적었습니다.

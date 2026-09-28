@@ -46,6 +46,9 @@ def build_linkage(rows: list[dict], documents: dict[tuple[str, str], list[dict]]
         matches = documents[(row["lookup_kind"], row["lookup_value"])]
         document = matches[0] if len(matches) == 1 else {}
         opening_date = document.get("OpeningDate", "")
+        registration_publication_date = document.get("PublicDate", "")
+        public_dates = [date for date in (opening_date, registration_publication_date) if date]
+        first_public_date = min(public_dates) if public_dates else ""
         query_date = row["query_application_date"]
         linked.append({
             **row,
@@ -53,22 +56,34 @@ def build_linkage(rows: list[dict], documents: dict[tuple[str, str], list[dict]]
             "matched_application_number": document.get("ApplicationNumber", ""),
             "matched_opening_number": document.get("OpeningNumber", ""),
             "matched_opening_date": opening_date,
+            "matched_registration_publication_date": registration_publication_date,
+            "matched_first_public_date": first_public_date,
             "title_characters": len(document.get("InventionName", "")),
             "abstract_characters": len(document.get("Abstract", "")),
-            "published_before_query_filing": bool(opening_date and query_date and opening_date <= query_date),
+            "published_before_query_filing": bool(first_public_date and query_date and first_public_date <= query_date),
         })
     return linked
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("application_numbers", nargs="+", help="Already cached query cases")
+    parser.add_argument("application_numbers", nargs="*", help="Already cached query cases")
+    parser.add_argument("--from-sampling", action="store_true", help="Use cases in pilot_case_sampling.json")
     parser.add_argument("--raw-dir", type=Path, default=ROOT / "data" / "raw")
     parser.add_argument("--citation-types", default="E0802,E0805")
     args = parser.parse_args()
     codes = {value.strip() for value in args.citation_types.split(",") if value.strip()}
     if not codes:
         parser.error("At least one citation type code is required")
+    if args.from_sampling:
+        if args.application_numbers:
+            parser.error("Use either application numbers or --from-sampling")
+        sampling = json.loads((args.raw_dir / "pilot_case_sampling.json").read_text(encoding="utf-8"))
+        args.application_numbers = [
+            number for group in sampling["groups"].values() for number in group["selected"]
+        ]
+    if not args.application_numbers:
+        parser.error("Provide application numbers or --from-sampling")
 
     rows = source_rows(args.raw_dir, args.application_numbers, codes)
     lookup_keys = sorted({(row["lookup_kind"], row["lookup_value"]) for row in rows})

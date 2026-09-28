@@ -15,6 +15,7 @@ from src.patent_evidence.dataset import (
 )
 from src.patent_evidence.xmlutil import parse_items
 from scripts.inspect_kipris_case import summarize_citations
+from scripts.fetch_pilot_documents import build_linkage
 
 
 class CitationMappingTests(unittest.TestCase):
@@ -71,6 +72,23 @@ class CitationMappingTests(unittest.TestCase):
         self.assertIn("/openapi/rest/", url)
         self.assertEqual(params["accessKey"], "test-key")
         self.assertNotIn("ServiceKey", params)
+
+    def test_registered_citation_uses_grant_publication_date(self):
+        citation = {
+            "query_application_number": "1020190174967",
+            "query_application_date": "20191201",
+            "lookup_kind": "registration_number",
+            "lookup_value": "1016787870000",
+        }
+        documents = {("registration_number", "1016787870000"): [{
+            "ApplicationNumber": "1020150000001",
+            "PublicDate": "20161206",
+            "InventionName": "등록 특허",
+            "Abstract": "초록",
+        }]}
+        linked = build_linkage([citation], documents)[0]
+        self.assertEqual(linked["matched_first_public_date"], "20161206")
+        self.assertTrue(linked["published_before_query_filing"])
 
     def test_citation_xml_preserves_division_and_excludes_foreign(self):
         xml = """<response><body><items>
