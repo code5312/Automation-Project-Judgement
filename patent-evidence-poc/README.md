@@ -74,3 +74,19 @@ python -m unittest discover -s tests -v
 - 심사 인용문헌을 gold label로 쓰되 "인용되지 않음 = 무관함"으로 단정하지 않기
 - baseline 성능이 낮아도 숨기지 않고 이후 개선폭을 기록하기
 - API 인증키는 환경변수/로컬 설정으로만 관리하고 Git에 커밋하지 않기
+
+### 첫 실제 응답 점검
+
+KIPRISPlus 키가 준비되면 `KIPRIS_API_KEY`를 현재 셸의 환경변수로 설정하고 다음을 실행합니다. 키를 명령 인수나 Git 파일에 넣지 않습니다.
+
+```bash
+python scripts/inspect_kipris_case.py 1019950039253
+```
+
+스크립트는 `data/raw/<출원번호>.citation.xml`에 원본 인용 응답을 저장하고, 인용 필드명·구분값 분포·국내 문헌 조회 키를 출력합니다. `data/raw/`는 Git에서 제외됩니다. 원본을 다시 분석할 때는 키 없이 실행할 수 있습니다.
+
+```bash
+python scripts/inspect_kipris_case.py 1019950039253 --citation-xml data/raw/1019950039253.citation.xml
+```
+
+실제 구분값의 뜻을 공식 명세와 대조하기 전에는 인용 목록을 평가 정답으로 사용하지 않습니다.

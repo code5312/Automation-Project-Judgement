@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
@@ -36,8 +37,13 @@ class KiprisClient:
             f"{url}?{query}",
             headers={"User-Agent": "Team-GOAT-Patent-Evidence-PoC/0.1"},
         )
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.read().decode("utf-8", errors="replace")
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f"KIPRIS HTTP {exc.code}; check API approval and operation") from None
+        except urllib.error.URLError:
+            raise RuntimeError("KIPRIS connection failed; check network and endpoint") from None
 
     def _publication_call(self, operation: str, **params: str) -> str:
         if not self.service_key:

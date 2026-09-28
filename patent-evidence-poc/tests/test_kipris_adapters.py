@@ -12,6 +12,7 @@ from src.patent_evidence.dataset import (
     select_gold_candidates,
 )
 from src.patent_evidence.xmlutil import parse_items
+from scripts.inspect_kipris_case import summarize_citations
 
 
 class CitationMappingTests(unittest.TestCase):
@@ -77,6 +78,22 @@ class CitationMappingTests(unittest.TestCase):
     def test_gold_policy_cannot_be_implicit(self):
         with self.assertRaises(ValueError):
             select_gold_candidates([], allowed_division_names=set())
+
+    def test_inspection_exposes_raw_fields_and_division_distribution(self):
+        xml = """<response><body><items><item>
+        <standardCitationLiteratureCountryCode>KR</standardCitationLiteratureCountryCode>
+        <standardCitationIdentificationCode>A1</standardCitationIdentificationCode>
+        <standardCitationLiteratureNumber>1020200012345</standardCitationLiteratureNumber>
+        <standardCitationDivisionCode>01</standardCitationDivisionCode>
+        <standardCitationDivisionCodeName>sample-origin</standardCitationDivisionCodeName>
+        </item></items></body></response>"""
+        summary = summarize_citations(xml)
+        self.assertEqual(summary["citation_item_count"], 1)
+        self.assertIn("standardCitationDivisionCode", summary["citation_field_names"])
+        self.assertEqual(
+            summary["citation_divisions"],
+            [{"code": "01", "name": "sample-origin", "count": 1}],
+        )
 
 
 if __name__ == "__main__":
