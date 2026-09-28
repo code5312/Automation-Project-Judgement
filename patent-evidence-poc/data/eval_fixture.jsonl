@@ -1,0 +1,3 @@
+{"case_id":"FIX-Q-001","query":"웨이퍼 맵 결함 패턴 분류","gold_doc_ids":["FIX-KR-001","FIX-KR-005"],"is_fixture":true}
+{"case_id":"FIX-Q-002","query":"반도체 공정 센서 시계열 이상 탐지","gold_doc_ids":["FIX-KR-002","FIX-KR-006"],"is_fixture":true}
+{"case_id":"FIX-Q-003","query":"설비 베어링 진동 이상 고장 진단","gold_doc_ids":["FIX-KR-003"],"is_fixture":true}
