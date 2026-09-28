@@ -1,0 +1,4 @@
+# KIPRISPlus official helpdesk examples used in citation-related questions.
+# These are smoke-test candidates only, not a benchmark dataset.
+1019950039253
+1020140170841
