@@ -17,6 +17,8 @@
 현재 `data/*_fixture.jsonl`은 **파이프라인 검증용 합성 데이터**입니다.
 실제 KIPRIS 특허/심사인용문헌 데이터로 성능을 주장하기 위한 평가셋이 아닙니다.
 
+2026-09-28 현재 KIPRIS 실 API 10건 파일럿에서 공보·인용문헌 조회와 국내 공보 재연결을 확인했습니다. **실데이터 검색 성능은 아직 측정하지 않았습니다.** 진행 경과와 한계는 [개인 작업기록](docs/personal_worklog.md)에 정리했습니다.
+
 ## 왜 이 순서인가
 
 최종 서비스 후보는 다음 흐름을 목표로 합니다.
@@ -37,7 +39,7 @@
 query
 → BM25
 → ranked patent ids
-→ examiner-citation gold labels
+→ citation proxy labels with an explicit type policy
 → Recall@K / MRR
 ```
 
@@ -90,3 +92,11 @@ python scripts/inspect_kipris_case.py 1019950039253 --citation-xml data/raw/1019
 ```
 
 실제 구분값의 뜻을 공식 명세와 대조하기 전에는 인용 목록을 평가 정답으로 사용하지 않습니다.
+
+이미 저장한 질의 4건의 국내 인용 공보를 중복 없이 재조회하려면 다음을 실행합니다. 결과는 Git에서 제외되는 `data/raw/pilot_document_linkage.json`에 저장됩니다.
+
+```bash
+python scripts/fetch_pilot_documents.py 1020140170841 1020060037777 1020090012972 1020110090313
+```
+
+이 파일의 E0802·E0805는 **선행기술조사 관련 인용 proxy**일 뿐 심사관 최종 정답이 아닙니다.

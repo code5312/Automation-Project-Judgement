@@ -1,11 +1,13 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.patent_evidence.citations import citation_to_lookup
+from src.patent_evidence.kipris import KiprisClient
 from src.patent_evidence.dataset import (
     citation_division_counts,
     parse_domestic_citation_lookups,
@@ -39,6 +41,36 @@ class CitationMappingTests(unittest.TestCase):
         rows = parse_items(xml)
         self.assertEqual(rows[0]["applicationNumber"], "1020200000001")
         self.assertEqual(rows[0]["inventionTitle"], "테스트")
+
+    def test_live_response_row_names_are_parsed(self):
+        publication = """<response><body><items><PatentUtilityInfo>
+        <ApplicationNumber>1020140170841</ApplicationNumber>
+        <InventionName>한국어 특허</InventionName>
+        </PatentUtilityInfo></items></body></response>"""
+        citation = """<response><body><items><citationInfoV3>
+        <StandardCitationLiteratureCountryCode>KR</StandardCitationLiteratureCountryCode>
+        <StandardCitationIdentificationCode>A</StandardCitationIdentificationCode>
+        <StandardCitationLiteraturenumber>1020100093858</StandardCitationLiteraturenumber>
+        <CitationLiteratureTypeCode>E0802</CitationLiteratureTypeCode>
+        <CitationLiteratureTypeCodeName>선행기술조사보고서</CitationLiteratureTypeCodeName>
+        </citationInfoV3></items></body></response>"""
+        self.assertEqual(parse_items(publication)[0]["InventionName"], "한국어 특허")
+        rows = parse_domestic_citation_lookups(citation)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["citation_division_code"], "E0802")
+        self.assertEqual(
+            select_gold_candidates(rows, allowed_division_codes={"E0802"})[0]["lookup_value"],
+            "1020100093858",
+        )
+
+    def test_publication_search_uses_openapi_access_key(self):
+        client = KiprisClient(publication_access_key="test-key")
+        with patch.object(KiprisClient, "_get", return_value="<response><resultCode>00</resultCode></response>") as get:
+            client.search_application_xml("1020140170841")
+        url, params, _ = get.call_args.args
+        self.assertIn("/openapi/rest/", url)
+        self.assertEqual(params["accessKey"], "test-key")
+        self.assertNotIn("ServiceKey", params)
 
     def test_citation_xml_preserves_division_and_excludes_foreign(self):
         xml = """<response><body><items>

@@ -10,27 +10,32 @@ from .xmlutil import parse_items
 
 CITATION_FIELD_ALIASES = {
     "country": (
+        "StandardCitationLiteratureCountryCode",
         "standardCitationLiteratureCountryCode",
         "standardCitationLiteratureNationCode",
         "STAND_LTRTRE_NAT_CODE",
     ),
     "ident": (
+        "StandardCitationIdentificationCode",
         "standardCitationIdentificationCode",
         "standardCitationIdntfcCode",
         "STAND_LTRTRE_IDNTFC_CODE",
     ),
     "number": (
+        "StandardCitationLiteraturenumber",
         "standardCitationLiteraturenumber",
         "standardCitationLiteratureNumber",
         "standardCitationLiteratureNum",
         "STAND_LTRTRE_NUM",
     ),
     "division_code": (
+        "CitationLiteratureTypeCode",
         "standardCitationLiteratureDivisionCode",
         "standardCitationDivisionCode",
         "STAND_LTRTRE_DIV_CODE",
     ),
     "division_name": (
+        "CitationLiteratureTypeCodeName",
         "standardCitationLiteratureDivisionCodeName",
         "standardCitationDivisionCodeName",
         "STAND_LTRTRE_DIV_CODE_NM",
@@ -90,7 +95,8 @@ def citation_division_counts(records: list[dict]) -> dict[str, int]:
 def select_gold_candidates(
     records: list[dict],
     *,
-    allowed_division_names: set[str],
+    allowed_division_names: set[str] | None = None,
+    allowed_division_codes: set[str] | None = None,
 ) -> list[dict]:
     """Select benchmark gold only after an explicit citation-origin policy.
 
@@ -98,12 +104,13 @@ def select_gold_candidates(
     citation product contains more than one citation source, so treating every
     row as an examiner relevance label would overclaim the benchmark.
     """
-    if not allowed_division_names:
-        raise ValueError("allowed_division_names must be explicitly defined")
+    if not allowed_division_names and not allowed_division_codes:
+        raise ValueError("citation division whitelist must be explicitly defined")
     return [
         row
         for row in records
-        if row.get("citation_division_name") in allowed_division_names
+        if row.get("citation_division_name") in (allowed_division_names or set())
+        or row.get("citation_division_code") in (allowed_division_codes or set())
     ]
 
 

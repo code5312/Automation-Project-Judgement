@@ -23,7 +23,7 @@ def parse_items(xml_text: str) -> list[dict[str, str]]:
     root = ET.fromstring(xml_text)
     items = []
     for elem in root.iter():
-        if local_name(elem.tag) == "item":
+        if local_name(elem.tag) in {"item", "citationInfoV3", "PatentUtilityInfo"}:
             items.append(text_map(elem))
     return items
 
