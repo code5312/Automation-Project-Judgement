@@ -123,3 +123,14 @@ python scripts/evaluate_real_pilot.py --sampling-file holdout_case_sampling.json
 ```
 
 마지막 명령의 `--tokenizer`를 `korean-ngram`, `hybrid`로 각각 바꿔 동일 후보집에서 비교합니다. 9건에서는 단어 BM25가 Recall@10 0.731, n-gram이 0.722였다. 자세한 값과 해석은 개인 작업기록에 있습니다.
+
+### 정답 주입 없는 후보 생성 평가
+
+질의 제목에서 정답을 보지 않고 최대 두 검색어를 선택해 KIPRIS 후보를 수집합니다. 첫 명령은 새 검색어에만 API를 호출하고 XML을 `data/raw/`에 캐시합니다. 두 번째 명령은 저장된 응답만 읽고 출원일 이전 공개 후보의 포함률과 BM25 순위를 계산합니다.
+
+```bash
+python scripts/fetch_query_candidates.py
+python scripts/evaluate_candidate_generation.py
+```
+
+`output/candidate_generation.md`와 `.json`에 결과가 저장됩니다. 이번 30건에서 인용 문헌 후보 포함은 15/77쌍(19.5%)이어서, 정답 주입 평가의 높은 순위 수치를 실제 검색 성능으로 해석하지 않습니다. 표본과 검색어·500행 한계는 [개인 작업기록](docs/personal_worklog.md)에 적었습니다.
