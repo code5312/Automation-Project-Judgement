@@ -5,7 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.patent_evidence.bm25 import BM25Index, tokenize
+from src.patent_evidence.bm25 import BM25Index, tokenize, tokenize_korean_ngrams
 from src.patent_evidence.cli import load_jsonl, validate_corpus, validate_eval
 from src.patent_evidence.metrics import evaluate_cases, recall_at_k, reciprocal_rank
 
@@ -24,6 +24,12 @@ class BaselineTests(unittest.TestCase):
             tokenize("웨이퍼-map, 결함! 123"),
             ["웨이퍼", "map", "결함", "123"],
         )
+
+    def test_ngram_tokenizer_handles_surface_variation_but_not_synonyms(self):
+        self.assertIn("ko:냉각", tokenize_korean_ngrams("냉각장치"))
+        self.assertIn("ko:냉각", tokenize_korean_ngrams("냉각 시스템"))
+        self.assertFalse(set(tokenize_korean_ngrams("냉각")) &
+                         set(tokenize_korean_ngrams("열관리")))
 
     def test_fixture_queries_retrieve_a_gold_document_at_rank_1(self):
         for case in self.eval_rows:

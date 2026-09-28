@@ -7,6 +7,7 @@ examiner relevance labels. Output stays under gitignored output/.
 
 from __future__ import annotations
 
+import argparse
 import json
 import statistics
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.patent_evidence.bm25 import BM25Index
+from src.patent_evidence.bm25 import BM25Index, tokenize, tokenize_korean_ngrams
 from src.patent_evidence.metrics import evaluate_cases
 from src.patent_evidence.xmlutil import parse_items
 
@@ -63,6 +64,11 @@ def load_corpus(raw_dir: Path, linkage: list[dict]) -> tuple[dict[str, dict], di
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tokenizer", choices=("word", "korean-ngram", "hybrid"), default="word")
+    args = parser.parse_args()
+    tokenizers = {"word": tokenize, "korean-ngram": tokenize_korean_ngrams}
+    tokenizer = tokenizers.get(args.tokenizer)
     raw_dir = ROOT / "data" / "raw"
     output_dir = ROOT / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -102,10 +108,21 @@ def main() -> int:
         gold = gold_by_query[number]
         if not gold or not gold <= candidate_ids:
             raise ValueError(f"Missing time-eligible gold for {number}: {sorted(gold - candidate_ids)}")
-        ranked = BM25Index(candidates).search(query_doc["title"] + " " + query_doc["abstract"])
+        query_text = query_doc["title"] + " " + query_doc["abstract"]
+        if args.tokenizer == "hybrid":
+            word_ranked = BM25Index(candidates, tokenizer=tokenize).search(query_text)
+            char_ranked = BM25Index(candidates, tokenizer=tokenize_korean_ngrams).search(query_text)
+            fusion = defaultdict(float)
+            for ranking in (word_ranked, char_ranked):
+                for position, item in enumerate(ranking, 1):
+                    fusion[item.doc_id] += 1 / (60 + position)
+            ranked_ids = sorted(fusion, key=lambda doc_id: (-fusion[doc_id], doc_id))
+        else:
+            ranked = BM25Index(candidates, tokenizer=tokenizer).search(query_text)
+            ranked_ids = [item.doc_id for item in ranked]
         results.append({"case_id": number, "query": query_doc["title"],
                         "gold_doc_ids": sorted(gold),
-                        "ranked_ids": [item.doc_id for item in ranked],
+                        "ranked_ids": ranked_ids,
                         "candidate_count": len(candidates), "query_application_date": query_date})
         candidate_counts.append(len(candidates))
         gold_counts.append(len(gold))
@@ -115,7 +132,8 @@ def main() -> int:
         "candidate_source": "first 300 results each for 데이터, 반도체, 측정 + known positive documents",
         "selection": "7 citation-positive cases in each of G06, H01/H10, G01; fixed seed 20260928",
         "label": "domestic E0802/E0805 search-report citation proxy; final examiner relevance unverified",
-        "retrieval": "B0 title+abstract whitespace/regex-token BM25",
+        "retrieval": f"B0 title+abstract {args.tokenizer} BM25"
+                     + (" with equal-weight RRF(k=60)" if args.tokenizer == "hybrid" else ""),
         "time_filter": "earliest of OpeningDate and PublicDate <= query ApplicationDate",
         "limitations": ["positive injection", "keyword-seeded corpus", "citation-positive case selection",
                         "not a representative performance estimate"],
@@ -138,15 +156,16 @@ def main() -> int:
             idx for idx, doc_id in enumerate(raw["ranked_ids"], 1)
             if doc_id in raw["gold_doc_ids"]
         )
-    path = output_dir / "real_pilot_b0.json"
+    suffix = {"word": "", "korean-ngram": "_korean_ngram", "hybrid": "_hybrid"}[args.tokenizer]
+    path = output_dir / f"real_pilot_b0{suffix}.json"
     path.write_text(json.dumps(evaluation, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
-        "# KIPRIS 21건 탐색 파일럿 · B0 결과",
+        f"# KIPRIS 21건 탐색 파일럿 · B0 {args.tokenizer} 결과",
         "",
         "- 질의: G06·H01/H10·G01 각 7건, 총 21건. 인용이 있는 사례만 선택.",
         "- 후보: `데이터`·`반도체`·`측정` 검색 각 300행, 중복 제거 후 인용 정답 문헌 주입.",
         "- 정답 대용: 국내 E0802·E0805 인용, 출원일 이전 공개 확인. 심사관 최종 판단과 무관성 정답은 미확인.",
-        "- 검색: 제목+초록 BM25. 질의 출원일 이후 공개 문헌과 자기 문헌 제외.",
+        f"- 검색: 제목+초록 {args.tokenizer} BM25. 질의 출원일 이후 공개 문헌과 자기 문헌 제외.",
         "- 제한: 검색어 중심 후보군·정답 주입·인용 양성 사례 선택. 아래 수치는 대표 성능이 아닌 파이프라인 탐색 결과.",
         "",
         "| 항목 | 값 |", "| --- | ---: |",
@@ -167,7 +186,7 @@ def main() -> int:
             f"{len(case['gold_doc_ids'])} | {case['first_gold_rank']} | "
             f"{metrics['recall@10']:.2f} | {metrics['recall@20']:.2f} | {metrics['recall@50']:.2f} |"
         )
-    (output_dir / "real_pilot_b0.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (output_dir / f"real_pilot_b0{suffix}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(json.dumps({"corpus": corpus_stats, "summary": evaluation["summary"],
                       "aggregate": evaluation["aggregate"], "report": str(path)},
                      ensure_ascii=False, indent=2))

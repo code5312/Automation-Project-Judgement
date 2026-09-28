@@ -4,6 +4,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Callable
 
 TOKEN_RE = re.compile(r"[가-힣A-Za-z0-9]+")
 
@@ -13,6 +14,22 @@ def tokenize(text: str) -> list[str]:
     return [token.lower() for token in TOKEN_RE.findall(text or "")]
 
 
+def tokenize_korean_ngrams(text: str) -> list[str]:
+    """Index overlapping Korean syllable pairs/triples within each word.
+
+    This handles spacing and inflection variants, but cannot infer synonyms
+    that share no syllables (for example 냉각 vs 열관리).
+    """
+    result = []
+    for word in tokenize(text):
+        if re.fullmatch(r"[가-힣]+", word) and len(word) >= 2:
+            result.extend(f"ko:{word[i:i+n]}" for n in (2, 3)
+                          for i in range(len(word) - n + 1))
+        else:
+            result.append(word)
+    return result
+
+
 @dataclass(frozen=True)
 class RankedDocument:
     doc_id: str
@@ -20,13 +37,15 @@ class RankedDocument:
 
 
 class BM25Index:
-    def __init__(self, documents: list[dict], k1: float = 1.5, b: float = 0.75):
+    def __init__(self, documents: list[dict], k1: float = 1.5, b: float = 0.75,
+                 tokenizer: Callable[[str], list[str]] = tokenize):
         if not documents:
             raise ValueError("documents must not be empty")
         self.documents = documents
         self.k1 = k1
         self.b = b
-        self.doc_tokens = [tokenize(self._text(d)) for d in documents]
+        self.tokenizer = tokenizer
+        self.doc_tokens = [tokenizer(self._text(d)) for d in documents]
         self.doc_tf = [Counter(tokens) for tokens in self.doc_tokens]
         self.doc_len = [len(tokens) for tokens in self.doc_tokens]
         self.avgdl = sum(self.doc_len) / len(self.doc_len)
@@ -53,7 +72,7 @@ class BM25Index:
         return math.log(1 + (self.n_docs - n + 0.5) / (n + 0.5))
 
     def score(self, query: str, doc_idx: int) -> float:
-        query_terms = tokenize(query)
+        query_terms = self.tokenizer(query)
         tf = self.doc_tf[doc_idx]
         dl = self.doc_len[doc_idx]
         score = 0.0

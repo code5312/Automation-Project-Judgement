@@ -108,6 +108,8 @@ python scripts/fetch_candidate_pool.py
 python scripts/sample_pilot_cases.py
 python scripts/fetch_pilot_documents.py --from-sampling
 python scripts/evaluate_real_pilot.py
+python scripts/evaluate_real_pilot.py --tokenizer korean-ngram
+python scripts/evaluate_real_pilot.py --tokenizer hybrid
 ```
 
-출력은 Git에서 제외되는 `output/real_pilot_b0.md`·`.json`입니다. API 키는 `.env`를 직접 읽지 않으므로 호출 전 현재 셸의 `KIPRIS_API_KEY` 환경변수에 설정해야 합니다. 절차와 편향은 [프로토콜](docs/real_dataset_protocol.md)에 적었습니다.
+평가 출력은 Git에서 제외되는 `output/real_pilot_b0*.md`·`.json`입니다. API 키는 `.env`를 직접 읽지 않으므로 호출 전 현재 셸의 `KIPRIS_API_KEY` 환경변수에 설정해야 합니다. 표현 변형 실험 결과와 한계는 [개인 작업기록](docs/personal_worklog.md), 평가셋 편향은 [프로토콜](docs/real_dataset_protocol.md)에 적었습니다.
