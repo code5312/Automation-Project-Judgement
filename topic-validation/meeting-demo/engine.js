@@ -56,5 +56,39 @@
       return {state: 'hold', reason: '기술 범위 또는 공개 내용을 추가 확인해야 합니다.', premise: false};
     return {state: 'skip', reason: '현재 입력만으로는 검토 요청 신호가 보이지 않습니다.', premise: false};
   }
-  return {exceptionDecision, conflicts, canonical, changeState, ipSignal};
+  function mappingMatch(order, scope) {
+    return order.external === 'MUG-WHT' && (scope === 'broad' || (order.channel === '스마트스토어' && order.volume === 350));
+  }
+  function replay(orders, scope) {
+    return orders.map(order => ({id:order.id, matched:mappingMatch(order,scope), correct:!mappingMatch(order,scope)||order.target==='SKU-MUG-350-W'}));
+  }
+  function crmRun(order, fixed, input) {
+    const customer={...input},trace=[];
+    for(const flow of order) {
+      if(flow==='marketing') customer.status='관심 고객';
+      else customer[fixed?'cs_status':'status']='처리 완료';
+      trace.push({flow,customer:{...customer}});
+    }
+    return {customer,trace};
+  }
+  function parseShippingRequest(text) {
+    const normalized=canonical(text);
+    const values=normalized.match(/50000|30000/g)||[];
+    if(!/배송|shipping/.test(normalized)||values.length!==2||values[0]!=='50000'||values[1]!=='30000'||/VIP|vip|환불|하지|금지|않|취소/.test(text))
+      return {ok:false,message:'이 체험은 일반 고객 무료배송 기준 5만원 → 3만원 변경을 지원합니다. 다른 요청은 적용하지 않았습니다.'};
+    return {ok:true,message:'일반 고객의 무료배송 최소 주문 금액을 50,000원에서 30,000원으로 변경합니다. VIP 혜택과 결제 한도는 유지합니다.'};
+  }
+  function shippingCheck(artifacts, contents, coverage) {
+    return artifacts.map(a=>{
+      if(!a.affected)return {id:a.id,status:'unrelated',message:'배송 금액 기준과 독립된 항목'};
+      if(a.id==='tests')return {id:a.id,status:coverage?'updated':'coverage',message:coverage?'29,999원·30,000원·50,000원 테스트 통과':'50,000원 테스트는 유효합니다. 새 기준의 경계값 검증이 빠졌습니다.'};
+      const result=changeState(contents[a.id]||a.before,['50000','5만원'],['30000','3만원']);
+      return {id:a.id,status:result.state,message:result.reason};
+    });
+  }
+  function patentFilter(documents, description, mode, expanded) {
+    if(!/센서|sensor/i.test(description)||!/샘플|sampling|압축|compression|전력|power/i.test(description))return [];
+    return documents.filter(d=>expanded||mode==='all'&&d.tags.some(t=>['compression','sampling'].includes(t))||d.tags.includes(mode));
+  }
+  return {exceptionDecision, conflicts, canonical, changeState, ipSignal,mappingMatch,replay,crmRun,parseShippingRequest,shippingCheck,patentFilter};
 });

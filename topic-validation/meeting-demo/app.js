@@ -1,271 +1,128 @@
-/* One-page product walkthrough for the 9/30 meeting. No network writes. */
-const DATA = window.DEMO_DATA;
-const ENGINE = window.DEMO_ENGINE;
-const TOPICS = [
-  ['overview','◈','전체 흐름'],['b1','01','반복 예외'],['b2','02','자동화 충돌'],
-  ['b3','03','변경 완료'],['d','04','IP 사건'],['patent','05','특허 검색'],['summary','✓','회의 결론']
-];
-const state = {
-  topic:'overview', b1Approved:false, b1Type:'grade_sync_delay', b1Consent:true, b1Result:null,
-  b2Flow:'status', b2Findings:null, b2Action:null,
-  b3Case:0, b3Choices:{}, b3Reasons:{}, b3Result:null,
-  dCase:0, dChoices:{}, dReasons:{}, dResult:null,
-  patentCase:0, patentChoices:{}, patentResult:null,
-  vote:null, note:''
-};
-const $ = s => document.querySelector(s);
-const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function badge(text,kind){return '<span class="badge '+(kind||'')+'">'+escapeHtml(text)+'</span>'}
-function stepper(steps){return '<div class="stepper">'+steps.map(x=>'<span>'+escapeHtml(x)+'</span>').join('')+'</div>'}
-function hero(index,title,description,badges,steps){
-  return '<div class="hero"><div>'+badges.join('')+'</div><h2>'+title+'</h2><p>'+description+'</p>'+stepper(steps)+'</div>';
-}
-function side(decision,evidence,question,source){
-  return '<div class="stack"><div class="panel"><h3>사람이 결정하는 것</h3><p>'+decision+'</p></div>'+
-    '<div class="panel"><h3>지금 확인된 것</h3><p>'+evidence+'</p></div>'+
-    '<div class="panel"><h3>회의에서 확인할 질문</h3><p>'+question+'</p><p class="source">'+source+'</p></div></div>';
-}
-function shell(content,aside){return '<div class="content-grid"><div class="stack">'+content+'</div>'+aside+'</div>'}
-function topicButton(id,label){return '<button class="secondary" data-topic="'+id+'">'+label+' →</button>'}
-function field(label,id,options,value){
-  return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+
-    options.map(o=>'<option value="'+escapeHtml(o[0])+'" '+(String(value)===String(o[0])?'selected':'')+'>'+escapeHtml(o[1])+'</option>').join('')+'</select></div>';
-}
-function resultBox(title,body,kind){return '<div class="result '+(kind||'')+'"><h3>'+title+'</h3>'+body+'</div>'}
-function renderNav(){
-  $('#topic-nav').innerHTML=TOPICS.map(([id,icon,title])=>
-    '<button class="nav-item '+(state.topic===id?'active':'')+'" data-topic="'+id+'" '+(state.topic===id?'aria-current="page"':'')+'><span>'+icon+'</span><span>'+title+'</span></button>').join('');
-}
+/* Browser-only product walkthrough. Scenario v2 never calls external APIs. */
+const L=window.LAB,E=window.DEMO_ENGINE,$=s=>document.querySelector(s);
+const STORAGE='u3-product-mock-v2';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fresh=()=>({topic:'overview',b1:{stage:0,scope:'broad',results:null,approved:false,volume:'350',channel:'스마트스토어',outcome:null},b2:{stage:0,order:'mc',fixed:false,runs:[],approved:false,name:'체험 고객'},b3:{stage:0,node:'policy',project:'daily',request:'일반 고객 무료배송 기준을 5만원에서 3만원으로 변경해줘',parsed:null,selected:['policy','faq','config','tests'],contents:{},drafts:{},coverage:false,checked:false,approved:false},d:{stage:0,analyzed:false,info:false,decisions:{},reasons:{},premises:{},recorded:false,changed:false,records:[]},patent:{stage:0,description:'통신 품질에 따라 센서 데이터 압축과 샘플링 간격을 조정하는 고객용 SDK',mode:'all',expanded:false,searched:false,node:'US9986069B2',choices:{},reasons:{},saved:false},feedback:{},note:'',vote:'',visited:[]});
+let state=fresh(),storageWarning='',busy=false,notice='',exportText='';
+try{const saved=JSON.parse(localStorage.getItem(STORAGE)||'null');if(saved&&saved.version===2)state=saved.state;}catch{storageWarning='브라우저 저장을 사용할 수 없습니다. 이 탭 안에서만 체험을 이어갈 수 있습니다.';}
+function persist(){try{localStorage.setItem(STORAGE,JSON.stringify({version:2,state}));}catch{storageWarning='저장 공간을 사용할 수 없습니다. 결과를 내려받아 보관하세요.';}}
+function badge(text,kind=''){return `<span class="badge ${kind}">${esc(text)}</span>`;}
+function btn(action,label,disabled=false,secondary=false){return `<button class="${secondary?'secondary':'primary'}" data-action="${action}" ${disabled?'disabled':''}>${label}</button>`;}
+function field(label,id,value,type='text'){return `<div class="field"><label for="${id}">${label}</label><input id="${id}" data-field="${id}" type="${type}" value="${esc(value)}"></div>`;}
+function area(label,id,value,placeholder=''){return `<div class="field"><label for="${id}">${label}</label><textarea id="${id}" data-field="${id}" placeholder="${esc(placeholder)}">${esc(value)}</textarea></div>`;}
+function select(label,id,value,items){return `<div class="field"><label for="${id}">${label}</label><select id="${id}" data-field="${id}">${items.map(([v,t])=>`<option value="${v}" ${v===value?'selected':''}>${t}</option>`).join('')}</select></div>`;}
+function panel(title,body,extra=''){return `<section class="panel ${extra}"><h3>${title}</h3>${body}</section>`;}
+function result(title,body,kind=''){return `<div class="result ${kind}"><h3>${title}</h3>${body}</div>`;}
+function tip(label,text){const id='tip-'+label.replace(/\s/g,'-');return `<span class="hint"><button class="hint-trigger" type="button" aria-label="${esc(label)} 설명" aria-describedby="${esc(id)}" aria-expanded="false">${label} ⓘ</button><span class="tooltip" id="${esc(id)}" role="tooltip">${text}</span></span>`;}
+function topicHeader(t){const s=state[t.id];return `<div class="workspace-head"><div><span class="eyebrow">${t.role} / ${t.n}</span><h2>${t.problem}</h2><p>${t.goal}</p></div><div class="controls">${btn('help','이 기능 이해하기',false,true)}${btn('reset','처음부터',false,true)}</div></div><ol class="journey">${t.steps.map((x,i)=>`<li class="${s.stage>i?'done':s.stage===i?'current':''}"><span>${s.stage>i?'✓':i+1}</span>${x}</li>`).join('')}</ol>`;}
 function render(){
-  renderNav();
-  const title=TOPICS.find(x=>x[0]===state.topic)[2];
-  $('#page-title').textContent=title==='전체 흐름'?'사람판단 워크스페이스':title;
-  const view={overview,b1,b2,b3,d,patent,summary}[state.topic]();
-  $('#page-content').innerHTML=view;
+  const topics=[{id:'overview',n:'◈',name:'주제 선택'},...L.topics,{id:'summary',n:'✓',name:'비교와 회의 의견'}];
+  $('#topic-nav').innerHTML=topics.map(t=>`<button class="nav-item ${state.topic===t.id?'active':''}" data-topic="${t.id}" ${state.topic===t.id?'aria-current="page"':''}><span>${t.n}</span><span>${t.name}</span></button>`).join('');
+  $('#page-title').textContent=topics.find(t=>t.id===state.topic)?.name||'주제 선택';
+  $('#page-content').innerHTML=(storageWarning?result('저장 안내',esc(storageWarning),'warn'):'')+({overview,b1,b2,b3,d,patent,summary}[state.topic]||overview)();
+  $('#activity-status').textContent=notice;
+  if(busy)$('#page-content').querySelectorAll('button').forEach(b=>b.disabled=true);
 }
-function overview(){
-  const cards=[
-    ['b1','01','반복 예외','같은 문제가 다시 오면, 지난 사람의 해결을 자동 적용해도 될까요?','가상 업무'],
-    ['b2','02','자동화 충돌','새 자동화가 기존 흐름의 상태나 행동을 망가뜨리지 않을까요?','가상 계약'],
-    ['b3','03','변경 완료','정책을 바꾼 뒤 FAQ·설정·테스트까지 반영됐을까요?','기준선 실험'],
-    ['d','04','IP 사건','공개 전에 검토해야 할 기술 변경을 놓치지 않았을까요?','가상 사건'],
-    ['patent','05','특허 검색','검색 후보 중 사람이 먼저 원문을 확인할 문헌은 무엇일까요?','KIPRIS 탐색']
-  ];
-  const main='<div class="panel"><div class="panel-head"><div><h2>다섯 업무, 하나의 공통 구조</h2><p class="muted">사람의 결정을 없애지 않고, 결정 전의 탐색과 결정 후의 후속 작업을 보조합니다.</p></div></div>'+
-    '<div class="metric-row"><div class="metric"><strong>5</strong><span>비교할 업무 후보</span></div><div class="metric"><strong>2</strong><span>기존 통제 실험 B-3·D</span></div><div class="metric"><strong>1</strong><span>실제 KIPRIS 탐색 축</span></div></div></div>'+
-    cards.map(([id,n,title,desc,level])=>'<div class="panel"><div class="panel-head"><div>'+badge(n+' / '+level,id==='patent'?'green':'gray')+
-      '<h3>'+title+'</h3><p class="muted">'+desc+'</p></div>'+topicButton(id,'체험하기')+'</div></div>').join('');
-  const aside=side('시스템이 후보와 근거를 준비하고, 담당자가 승인·수정·보류를 선택합니다.',
-    'B-3·D는 팀 제작 사례에서 기준선을 실행했습니다. 특허는 실제 공개 자료의 탐색 평가가 있고, B-1·B-2는 가상 업무 시연 단계입니다.',
-    '어느 업무의 실제 입력·정답·사용자를 먼저 확보할 수 있을까요?','회의 목표: MVP 주제와 다음 검증 자료 선정');
-  return hero('00','자동화의 끝에 사람의 판단을 남기다','각 후보를 눌러 사건 → 제안 → 사람 결정 → 후속 처리의 변화를 확인해 보세요.',
-    [badge('9/30 회의 시연'),badge('입력 저장 없음')],['사건','후보와 근거','사람 결정','후속 처리'])+shell(main,aside);
+function overview(){return `<div class="landing"><div class="eyebrow">U3 / PRODUCT EXPLORER</div><h2>사람의 판단이 필요한 순간,<br>어떤 일을 함께 줄일까요?</h2><p>다섯 업무를 직접 처리해 보고 팀이 풀고 싶은 문제를 골라 주세요.</p><div class="landing-meta">${badge('각 체험 3–5분')}${badge('진행 상태는 이 브라우저에 저장','green')}${badge('가상 업무 · 준비된 문헌','gray')}</div></div><div class="topic-cards">${L.topics.map(t=>`<article class="topic-card"><span class="card-number">${t.n}</span><p class="small muted">${t.role}</p><h3>${t.name}</h3><p>${t.problem}</p><p class="small muted">${t.goal}</p><div class="card-bottom"><button class="primary" data-topic="${t.id}">업무 체험하기 →</button>${badge(state.visited.includes(t.id)?'체험 중':'새 체험','gray')}</div></article>`).join('')}</div>`;}
+function b1(){const s=state.b1,rows=s.results;
+  return topicHeader(L.topics[0])+`<div class="workspace-grid">${panel('실패 주문과 해결 이력',`<p class="small muted">연동 대상 상품이 없을 때 운영자가 확인한 기록입니다.</p><div class="table-wrap"><table><thead><tr><th>주문 / 채널</th><th>상품 / 용량</th><th>사람이 연결한 상품</th></tr></thead><tbody>${L.orders.map(o=>`<tr><td>${o.id}<small>${o.channel}</small></td><td>${o.name}<small>${o.volume}ml · ${o.external}</small></td><td>${o.target}<small>${o.outcome}</small></td></tr>`).join('')}</tbody></table></div>${btn('b1-group','반복 패턴 찾기')}${s.stage>0?result('코드가 같은 사건 4건','<p>350ml 단품 2건은 같은 상품으로 해결했습니다. 500ml와 자사몰 세트 상품은 연결 대상이 다릅니다.</p>','warn'):''}`)}
+  <div class="stack">${panel('규칙 후보 · 사람의 적용 범위',`<p><strong>MUG-WHT → SKU-MUG-350-W</strong></p>${select('적용 조건','b1-scope',s.scope,[['broad','외부 상품코드만 일치'],['safe','스마트스토어 + 350ml + 외부 코드 일치']])}<p class="small muted">${tip('과거 재시험','승인할 규칙을 과거 주문에 적용해 원래 해결 결과와 비교합니다.')}에서 다른 상품이 잘못 연결되는지 확인합니다.</p><div class="controls">${btn('b1-replay','과거 주문 재시험',s.stage<1)}${btn('b1-approve','이 조건으로 자동 적용 승인',!rows||rows.some(r=>!r.correct)||!rows.some(r=>r.matched)||s.approved)}</div>${rows?result(rows.some(r=>!r.correct)?'승인 보류 · 잘못된 매핑 발견':'시험 통과 · 승인 가능한 범위',`<ul>${rows.map(r=>`<li>${r.id}: ${r.matched?(r.correct?'같은 상품으로 연결':'다른 상품으로 잘못 연결'):'규칙 범위 밖 → 사람 확인'}</li>`).join('')}</ul>`,rows.some(r=>!r.correct)?'warn':'success'):''}`)}
+  ${panel('새 주문 O-1201 처리',`<div class="controls">${select('판매 채널','b1-channel',s.channel,[['스마트스토어','스마트스토어'],['자사몰','자사몰']])}${select('상품 용량','b1-volume',s.volume,[['350','350ml 단품'],['500','500ml 단품']])}</div>${btn('b1-process','새 주문 처리',!s.approved)}${s.outcome?result(s.outcome.auto?'자동 매핑 완료':'담당자 확인으로 보류',`<p>${esc(s.outcome.message)}</p>`,s.outcome.auto?'success':'warn'):''}`)}</div></div>`;
 }
-function b1(){
-  const history=[
-    ['E-101','등급 정보 누락','CRM 등급 재조회 → 쿠폰 재발급','성공'],
-    ['E-102','등급 동기화 지연','CRM 등급 재조회 → 쿠폰 재발급','성공'],
-    ['E-103','수신 동의 철회','발급 중단 → 동의 상태 확인','정상 종료']
-  ];
-  const event={type:state.b1Type,consent:state.b1Consent};
-  const suggestion=ENGINE.exceptionDecision(event,state.b1Approved);
-  let main='<div class="panel"><div class="panel-head"><div><h3>1. 과거 해결 이력</h3><p class="muted small">같은 행동이 언제 성공했고, 언제 적용하면 안 되는지 비교합니다.</p></div>'+badge('예시 데이터','amber')+'</div>'+
-    history.map(h=>'<div class="record"><div class="record-row"><h4>'+h[0]+' · '+h[1]+'</h4>'+badge(h[3],h[3]==='성공'?'green':'gray')+'</div><p>'+h[2]+'</p></div>').join('')+'</div>'+
-    '<div class="panel"><h3>2. 다음 사건을 입력해 보기</h3><div class="controls">'+
-    field('예외 유형','b1-type',[['grade_sync_delay','등급 동기화 지연'],['grade_missing','등급 정보 누락'],['payment_mismatch','결제 금액 불일치']],state.b1Type)+
-    field('고객 수신 동의','b1-consent',[['yes','유효'],['no','철회됨']],state.b1Consent?'yes':'no')+'</div>'+
-    resultBox('시스템 제안: '+suggestion.action,'<p>'+suggestion.reason+'</p>',suggestion.status==='manual'?'warn':'')+
-    '<div class="controls"><button class="primary" data-action="b1-evaluate">이 사건 처리 경로 확인</button>'+
-    '<button class="secondary" data-action="b1-approve">'+(state.b1Approved?'승인 취소':'제안 규칙 승인')+'</button></div>'+
-    (state.b1Result?resultBox('3. 후속 처리',state.b1Result,state.b1Approved?'success':'warn'):'')+'</div>';
-  return hero('01','반복되는 예외를 규칙으로 바꿀 수 있을까?','과거의 성공 행동을 그대로 복사하기 전에 적용 조건과 금지 조건을 확인합니다.',
-    [badge('B-1'),badge('가상 업무','amber')],['예외 발생','유사 해결 확인','규칙 승인','다음 사건 처리'])+
-    shell(main,side('운영자가 해결 규칙의 적용 범위와 자동 적용 여부를 승인합니다.','동의 철회 사건은 재발급 규칙에서 제외됩니다. 실제 예외·결과 이력은 아직 없습니다.','한 업무에서 예외·사람 행동·성공 결과를 함께 구할 수 있을까요?','검증 단계: 개념·가상 규칙'));
+function b2(){const s=state.b2;const runs=s.runs;
+  return topicHeader(L.topics[1])+`<div class="workspace-grid">${panel('신규 문의를 처리하는 두 자동화',`<div class="flow-node">신규 문의 접수 <span>→</span> 고객 C-204</div><div class="flow-branches"><div class="flow-node">마케팅 흐름<small>고객 상태 → 관심 고객</small></div><div class="flow-node ${s.fixed?'resolved':'collision'}">CS 흐름<small>${s.fixed?'CS 처리 상태':'고객 상태'} → 처리 완료</small></div></div><div class="shared-data">${tip('공유 필드','두 흐름이 같은 고객의 같은 필드를 덮어쓰면 실행 순서에 따라 최종 값이 달라질 수 있습니다.')}<strong>${s.fixed?'customer.status / customer.cs_status':'customer.status'}</strong></div>${field('시험 고객 이름','b2-name',s.name)}${btn('b2-scan','배포 전 충돌 검사')}${s.stage>0?result(s.fixed?'쓰기 대상이 분리됐습니다':'같은 고객 상태를 서로 다르게 씁니다',`<p>${s.fixed?'격리 재시험으로 두 상태가 모두 보존되는지 확인하세요.':'마케팅과 CS의 정보가 한 필드에 섞였습니다. 실행 순서를 바꿔 결과를 확인하세요.'}</p>`,s.fixed?'success':'warn'):''}`)}
+  <div class="stack">${panel('격리 실행 · 순서에 따른 결과',`${select('실행 순서','b2-order',s.order,[['mc','마케팅 → CS'],['cm','CS → 마케팅']])}<div class="controls">${btn('b2-run','이 순서로 실행',s.stage<1)}${btn('b2-both','두 순서 비교',s.stage<1,false)}</div>${runs.map(r=>`<div class="record"><h4>${r.order==='mc'?'마케팅 → CS':'CS → 마케팅'}</h4><div class="timeline">${r.output.trace.map(x=>`<p>${x.flow==='marketing'?'마케팅':'CS'} 실행 → 고객 상태 <strong>${esc(x.customer.status)}</strong>${x.customer.cs_status?' / CS '+esc(x.customer.cs_status):''}</p>`).join('')}</div><p>최종: ${esc(r.output.customer.name)} · ${esc(r.output.customer.status)}${r.output.customer.cs_status?' · CS '+esc(r.output.customer.cs_status):''}</p></div>`).join('')}`)}
+  ${panel('수정과 배포 판단',`<p>마케팅 관계와 CS 처리 상태를 별도 필드에 보관합니다.</p><div class="controls">${btn('b2-fix','CS 전용 상태 필드로 수정',!runs.length||s.fixed)}${btn('b2-approve','재시험 결과 승인',!s.fixed||runs.length<2||s.approved)}</div>${s.approved?result('배포 승인 기록','<p>두 실행 순서에서 관심 고객과 CS 처리 완료가 모두 보존됐습니다. 다음 단계는 실제 n8n 시험환경에서 같은 입력을 재현하는 것입니다.</p>','success'):''}`)}</div></div>`;
 }
-const EXISTING=[
-  {name:'마케팅 관심 고객 지정',trigger:'new_inquiry',reads:['customer.status'],writes:{'customer.status':'관심 고객'}},
-  {name:'기존 환영 메일',trigger:'new_inquiry',reads:['customer.email'],writes:{},effect:'send_welcome'}
-];
-const NEW_FLOWS={
-  status:{name:'CS 처리 완료',trigger:'new_inquiry',reads:['customer.status'],writes:{'customer.status':'처리 완료'}},
-  mail:{name:'새 환영 메일',trigger:'new_inquiry',reads:['customer.email'],writes:{},effect:'send_welcome'},
-  audit:{name:'상태 변경 감사',trigger:'new_inquiry',reads:['customer.status'],writes:{'audit.last_status':'기록'}},
-  memo:{name:'상담 메모',trigger:'consultation_end',reads:['customer.id'],writes:{'customer.memo':'상담 기록'}}
-};
-function b2(){
-  const flow=NEW_FLOWS[state.b2Flow];
-  const findings=state.b2Findings;
-  let main='<div class="panel"><h3>1. 이미 운영 중인 자동화</h3>'+
-    EXISTING.map(x=>'<div class="record"><h4>'+x.name+'</h4><p class="small">시작 사건: 신규 문의 · 읽기: '+escapeHtml(x.reads.join(', '))+' · 쓰기/행동: '+escapeHtml(Object.keys(x.writes).join(', ')||x.effect)+'</p></div>').join('')+'</div>'+
-    '<div class="panel"><h3>2. 배포할 자동화 선택</h3><div class="controls">'+field('새 흐름','b2-flow',Object.entries(NEW_FLOWS).map(([id,x])=>[id,x.name]),state.b2Flow)+
-    '<button class="primary" data-action="b2-scan">배포 전 검사</button></div><div class="record"><h4>'+flow.name+'</h4><p>사건: '+flow.trigger+' · 읽기: '+flow.reads.join(', ')+' · 쓰기/행동: '+(Object.keys(flow.writes).join(', ')||flow.effect)+'</p></div>'+
-    (findings!==null?'<div class="result '+(findings.length?'warn':'success')+'"><h3>3. 검사 결과 · '+findings.length+'건</h3>'+
-      (findings.length?'<ul class="item-list">'+findings.map(f=>'<li><strong>'+f.kind+'</strong> · '+f.with+' — '+escapeHtml(f.detail)+'</li>').join('')+'</ul>':'<p>현재 입력 계약에서는 직접 충돌 후보가 없습니다. 실제 실행 결과는 별도 시험이 필요합니다.</p>')+
-      '<div class="controls"><button class="secondary" data-action="b2-fix">수정·격리 시험 요청</button><button class="secondary" data-action="b2-hold">배포 보류</button></div></div>':'')+
-    (state.b2Action?resultBox('4. 사람 결정 후',state.b2Action,'success'):'')+'</div>';
-  return hero('02','새 자동화가 기존 흐름을 깨뜨리지 않을까?','같은 사건의 읽기·쓰기 범위와 중복 행동을 비교해 충돌 후보를 보여줍니다.',
-    [badge('B-2'),badge('가상 n8n 계약','amber')],['새 흐름 등록','계약 비교','사람 검토','격리 시험'])+
-    shell(main,side('운영자가 충돌의 실제 영향과 수정·배포 여부를 결정합니다.','쓰기-쓰기, 읽기-쓰기, 중복 실행을 제한된 계약 자료로 계산합니다. 실제 n8n 정의와 실행은 연결하지 않았습니다.','자동화별 읽기·쓰기 계약이나 실행 기록을 확보할 수 있을까요?','검증 단계: 결정론적 충돌 계산 시연'));
+function b3(){const s=state.b3,a=L.artifacts.find(x=>x.id===s.node),content=s.contents[a.id]||a.before;const checks=E.shippingCheck(L.artifacts,s.contents,s.coverage),issues=checks.filter(x=>!['unrelated','updated'].includes(x.status));
+  const status={updated:'새 값 확인',stale:'이전 기준 남음',mixed:'문맥 확인',uncertain:'문맥 확인',coverage:'경계값 검증 부족',unrelated:'영향 없음'};
+  return topicHeader(L.topics[2])+`${panel('데일리숍 / 일반 고객 배송 정책',`<div class="controls">${select('프로젝트','b3-project',s.project,[['daily','데일리숍 · 배송 정책']])}<span class="small muted">업무 구조 7개 자료 · 프로젝트 사본</span></div>${area('변경 요청','b3-request',s.request)}${btn('b3-parse','요청 해석하기')}${s.parsed?result(s.parsed.ok?'적용할 변경을 확인해 주세요':'지원 범위를 확인해 주세요',`<p>${esc(s.parsed.message)}</p>${s.parsed.ok?btn('b3-confirm','이 변경으로 영향 범위 확인'):''}`,s.parsed.ok?'':'warn'):''}`)}
+  <div class="project-layout"><section class="panel tree-panel"><h3>프로젝트 구조</h3><p class="small muted">항목을 누르면 내용과 연결 근거가 보입니다.</p>${[...new Set(L.artifacts.map(x=>x.group))].map(g=>`<details open><summary>${g}</summary>${L.artifacts.filter(x=>x.group===g).map(x=>`<button class="tree-node ${x.id===s.node?'selected':''}" data-node="${x.id}"><span>${x.name}</span>${s.checked?badge(status[checks.find(c=>c.id===x.id).status],checks.find(c=>c.id===x.id).status==='updated'?'green':'gray'):''}</button>`).join('')}</details>`).join('')}</section>
+  ${panel(a.name,`<p class="small muted">${esc(a.why)}</p><div class="diff-grid"><div><span class="eyebrow">변경 전</span><pre>${esc(a.before)}</pre></div><div><span class="eyebrow">현재 프로젝트 사본</span><pre>${esc(content)}</pre></div></div>${area('자료 직접 편집','b3-edit',s.drafts?.[a.id]??content)}<div class="controls">${btn('b3-save','편집 내용 저장',s.stage<1,true)}${btn('b3-add',s.selected.includes(a.id)?'영향 범위에서 제외':'영향 범위에 추가',s.stage<1,true)}</div><p class="small">현재 영향 판단: <strong>${s.selected.includes(a.id)?'반영 대상':'반영 대상 아님'}</strong></p>${a.id==='tests'?`<p class="small">50,000원 테스트를 삭제할 필요는 없습니다. 새 경계값 29,999원·30,000원이 필요합니다.</p>${btn('b3-tests','새 경계값 테스트 추가·실행',s.stage<2,true)}`:''}`)}</div>
+  ${panel('영향 범위와 변경 실행',`<div class="chip-list">${s.selected.map(id=>badge(L.artifacts.find(a=>a.id===id).name)).join('')}</div><p class="small muted">근거를 확인한 항목만 반영하세요. 후보에서 빠진 항목은 트리에서 추가할 수 있습니다.</p><div class="controls">${btn('b3-apply','선택한 자료에 변경 반영',s.stage<1)}${btn('b3-check','반영 결과 검사',s.stage<2,true)}</div>${s.checked?result(issues.length?'완료 보류 · '+issues.length+'개 항목 확인':'모든 영향 항목 확인 · 완료 승인 가능',`<div class="check-list">${checks.map(c=>`<div><strong>${L.artifacts.find(a=>a.id===c.id).name}</strong>${badge(status[c.status],c.status==='updated'?'green':'gray')}<p>${esc(c.message)}</p></div>`).join('')}</div>${issues.length?btn('b3-report','상담 문구 누락 신고 → 영향 범위에 추가',false,true):btn('b3-approve','변경 완료 승인',s.approved)}${s.approved?'<p><strong>변경 완료 기록을 남겼습니다.</strong> 일반 고객 배송비 안내·설정과 새 경계값 테스트를 확인했습니다.</p>':''}`,issues.length?'warn':'success'):''}`)}`;
 }
-function b3(){
-  const c=DATA.cases[state.b3Case];
-  let main='<div class="panel"><div class="panel-head"><div><h3>1. 변경 요청</h3><p class="muted">'+escapeHtml(c.change)+'</p></div>'+badge('팀 제작 사례','amber')+'</div>'+
-    field('사례 선택','b3-case',DATA.cases.map((x,i)=>[i,x.name]),state.b3Case)+'</div>'+
-    '<div class="panel"><div class="panel-head"><div><h3>2. 영향 자료 확정</h3><p class="muted small">파란 테두리는 기존 BM25가 올린 후보입니다. 사람이 관련성을 결정하면 수정 후 값을 확인합니다.</p></div>'+badge(c.artifacts.length+'개 자료')+'</div>'+
-    c.artifacts.map((x,i)=>{
-      const key=state.b3Case+':'+x.id,choice=state.b3Choices[key]||'pending';
-      const check=ENGINE.changeState(x.after,c.old_forms,c.new_forms);
-      return '<div class="record '+(x.suggested?'suggested':'')+'"><div class="record-row"><div><h4>'+escapeHtml(x.id)+' · '+escapeHtml(x.kind)+'</h4>'+
-        (x.suggested?badge('검색 후보'):'')+'</div>'+badge(check.state==='stale'?'이전 값 잔존 후보':check.state==='updated'?'새 값 확인 후보':'문맥 확인',check.state==='stale'?'amber':'gray')+'</div>'+
-        '<p>'+escapeHtml(x.before)+'</p><details><summary>변경 후 자료와 검증 근거 보기</summary><p>'+escapeHtml(x.after)+'</p><span class="small muted">'+check.reason+' 값 일치에 한정한 검사입니다.</span></details>'+
-        '<div class="controls">'+field('사람의 영향 판단','b3-'+i,[['pending','아직 판단 안 함'],['related','관련 있음'],['unrelated','관련 없음'],['hold','추가 확인']],choice)+'</div>'+ 
-        '<div class="field"><label for="b3-reason-'+i+'">판단 이유·수정 범위 (선택)</label><textarea id="b3-reason-'+i+'" placeholder="예: 관련은 있으나 직접 수정할 자료는 아님">'+escapeHtml(state.b3Reasons[key]||'')+'</textarea></div></div>';
-    }).join('')+'<button class="primary" data-action="b3-check">3. 완료 여부 계산</button>'+
-    (state.b3Result?resultBox(state.b3Result.title,state.b3Result.body,state.b3Result.kind):'')+'</div>';
-  return hero('03','변경 지시가 모든 자료에 반영됐을까?','표현이 다른 자료를 찾고, 사람이 영향 범위를 확정한 뒤 값이 남아 있는 자료를 다시 봅니다.',
-    [badge('B-3'),badge('팀 제작 통제 사례','amber')],['정책 변경','영향 후보','사람 확정','완료 재검증'])+
-    shell(main,side('운영자가 영향 범위를 정하고, 수정 담당자가 반영한 뒤 완료를 확정합니다.','검색은 기존 BM25, 값 검사는 이 사례의 숫자·기간 표현만 정규화합니다. 임의의 정책을 이해하는 검사는 아닙니다.','관련 자료와 직접 수정해야 하는 자료를 어떻게 구분할까요?','검증 단계: 통제 사례 2개 + 외부 요구사항→코드 검색 부분 검증'));
+function d(){const s=state.d;return topicHeader(L.topics[3])+`${panel('SenseFlow SDK 2.0 · 고객 배포 예정',`<div class="release-bar"><div><span class="eyebrow">공개 사건</span><h3>고객 단말에서 센서 데이터 처리</h3><p>가상 일정: 10/07 배포 · 변경 4건 · 공개 전 확인</p></div>${badge(s.changed?'공개 범위 변경됨':'SDK 공개 준비','amber')}</div>${btn('d-analyze','개발 변경과 과거 판단 연결')}`)}
+  ${s.analyzed?`<div class="event-grid">${L.events.map(x=>`<section class="panel event-card"><div class="panel-head"><h3>${x.title}</h3>${badge(x.id==='buffer'&&s.info?'검토 정보 확보':x.signal,x.kind==='skip'?'gray':'amber')}</div><p>${x.id==='buffer'&&s.info?'개발자 답변: 서버 내부 로그 버퍼 크기만 조정했습니다. SDK에 구현을 포함하지 않습니다.':esc(x.text)}</p><div class="prior-record"><strong>${esc(x.prior)}</strong><p>${x.premise?esc(x.premise):x.kind==='skip'?'구현 변경 없이 화면만 조정한 기록입니다.':'과거 판단과 연결할 정보가 필요합니다.'}</p></div>${x.id==='buffer'&&!s.info?btn('d-info','개발자에게 공개 범위 확인',false,true):''}${select('담당자의 처리','d-choice-'+x.id,s.decisions[x.id]||'pending',[['pending','아직 판단하지 않음'],['review','IP 담당자에게 검토 요청'],['hold','정보 부족으로 보류'],['skip','추가 검토 불필요']])}${area('판단 이유','d-reason-'+x.id,s.reasons[x.id]||'','어떤 근거를 확인했는지 적어 주세요')}${x.id==='sdk'?area('이번 판단의 전제','d-premise-sdk',s.premises.sdk||'압축 구현은 서버에 유지하고 SDK에 포함하지 않는다.') :''}</section>`).join('')}</div>${panel('검토 작업과 판단 전제',`<div class="controls">${btn('d-record','판단 기록과 후속 작업 만들기')}${btn('d-change','상황 변경: 압축 모듈을 SDK에 포함',!s.recorded||!s.premises.sdk||!s.decisions.sdk||s.decisions.sdk==='hold'||s.changed,true)}</div>${s.recorded?result('담당자의 후속 작업',`<ul>${L.events.map(x=>`<li>${x.title}: ${esc({review:'IP 검토 작업 생성',hold:'추가 정보 요청 대기',skip:'검토 제외 기록'}[s.decisions[x.id]]||'미판단')}</li>`).join('')}</ul><p>기록된 전제: ${esc(s.premises.sdk||'없음')}</p>`):''}${s.changed?result('재검토 요청 · 공개 범위가 달라졌습니다',`<p>저장한 전제: ${esc(s.premises.sdk)}</p><p>현재: 압축 구현이 SDK에 포함될 예정입니다. 이전 기록을 보존하고 IP 담당자에게 전제가 유효한지 다시 확인하는 작업을 만들었습니다.</p>`,'warn'):''}`)}`:panel('변경 목록',L.events.map(x=>`<div class="record"><h4>${x.title}</h4><p>${esc(x.text)}</p></div>`).join(''))}`;}
+function patent(){const s=state.patent,list=s.searched?E.patentFilter(L.patents,s.description,s.mode,s.expanded):[],doc=L.patents.find(x=>x.id===s.node)||L.patents[0];
+  return topicHeader(L.topics[4])+`${panel('SenseFlow / 비교할 기술',`${area('기술 설명','patent-description',s.description)}<div class="controls">${select('검색 관점','patent-mode',s.mode,[['all','압축 + 샘플링'],['compression','데이터 압축'],['sampling','샘플링 조정'],['power','센서 전력 절감']])}${btn('patent-search','준비된 공개 문헌에서 찾기')}</div><p class="small muted">2026/09/30 확인한 공개 문헌 3건을 대상으로 탐색합니다. 표시 순서는 준비한 문헌 순서이며 검색 순위·실시간 API 결과가 아닙니다.</p>`)}
+  ${s.searched?`<div class="project-layout"><section class="panel tree-panel"><h3>검토 후보 ${list.length}건</h3>${list.length?list.map(p=>`<button class="patent-node ${p.id===s.node?'selected':''}" data-patent="${p.id}"><strong>${p.id}</strong><span>${esc(p.summary)}</span>${badge(s.choices[p.id]==='include'?'검토 대상':s.choices[p.id]==='exclude'?'제외':'미판단',s.choices[p.id]==='include'?'green':'gray')}</button>`).join(''):'<p>지원 기술을 찾지 못했습니다. 센서 데이터 압축·샘플링·전력 절감 설명으로 시험해 주세요.</p>'}${btn('patent-expand','범위 확대 · 센서 전력 절감 포함',!list.length||s.expanded,true)}</section>${list.some(p=>p.id===doc.id)?panel('기술 설명과 원문 근거 비교',`<span class="eyebrow">${doc.id}</span><h3>${esc(doc.title)}</h3><div class="diff-grid"><div><h4>우리 기술 설명</h4><p>${esc(s.description)}</p></div><div><h4>${doc.section}</h4><blockquote lang="en">${esc(doc.quote)}</blockquote><p>${esc(doc.interpretation)}</p><a href="${doc.url}" target="_blank" rel="noopener noreferrer">공개 문헌 원문 열기 ↗</a></div></div><div class="result"><strong>비교할 질문</strong><p>${esc(doc.question)}</p></div><p class="small muted">한국어 설명은 원문을 읽기 위한 요약입니다. 짧은 발췌로 청구항 전체의 범위·관련성을 확정하지 않습니다.</p>${select('사람의 검토 판단','patent-choice',s.choices[doc.id]||'pending',[['pending','판단 전'],['include','후속 검토 대상에 추가'],['exclude','이번 검토에서 제외'],['hold','추가 자료 확인 후 판단']])}${area('판단 이유·확인할 차이','patent-reason',s.reasons[doc.id]||'')}${btn('patent-save','검토 기록 저장')}`):panel('문헌 선택','후보를 선택하면 실제 원문 근거와 비교 질문이 표시됩니다.')}</div>${s.saved?panel('저장한 검토 목록',Object.entries(s.choices).filter(([,v])=>v!=='pending').map(([id,v])=>`<div class="record"><strong>${id}</strong> ${badge({include:'후속 검토',exclude:'제외',hold:'보류'}[v])}<p>${esc(s.reasons[id]||'이유 미기록')}</p></div>`).join('')):''}`:''}`;
 }
-function d(){
-  const c=DATA.cases[state.dCase];
-  let main='<div class="panel"><h3>1. 예정된 외부 공개</h3><p>'+escapeHtml(c.release)+'</p>'+
-    field('사례 선택','d-case',DATA.cases.map((x,i)=>[i,x.release]),state.dCase)+'</div>'+
-    '<div class="panel"><div class="panel-head"><div><h3>2. 사건별 검토</h3><p class="muted small">시스템이 놓칠 수 있으므로 사람은 검토 요청·보류·제외를 직접 선택합니다.</p></div>'+badge(c.events.length+'개 사건')+'</div>'+
-    c.events.map((x,i)=>{
-      const signal=ENGINE.ipSignal(x),key=state.dCase+':'+x.id,choice=state.dChoices[key]||'pending';
-      return '<div class="record '+(signal.state==='review'?'suggested':'')+'"><div class="record-row"><h4>'+escapeHtml(x.id)+'</h4>'+
-        badge(signal.state==='review'?'검토 신호':signal.state==='hold'?'정보 확인 신호':'신호 낮음',signal.state==='review'?'amber':'gray')+'</div>'+
-        '<p>'+escapeHtml(x.text)+'</p><p class="small muted">기존 기록: '+escapeHtml(x.record)+(x.premise?' · 판단 전제: '+escapeHtml(x.premise):'')+'</p>'+
-        '<details><summary>시스템 근거 보기</summary><p>'+escapeHtml(signal.reason)+'</p></details>'+
-        field('사람 판단','d-'+i,[['pending','아직 판단 안 함'],['review','IP 검토 요청'],['hold','정보 부족 · 보류'],['skip','추가 검토 불필요']],choice)+
-        '<div class="field"><label for="d-reason-'+i+'">판단 이유·필요한 정보 (선택)</label><textarea id="d-reason-'+i+'" placeholder="예: 공개 범위 확인 후 다시 판단">'+escapeHtml(state.dReasons[key]||'')+'</textarea></div></div>';
-    }).join('')+'<button class="primary" data-action="d-check">3. 판단 카드 만들기</button>'+
-    (state.dResult?resultBox(state.dResult.title,state.dResult.body,state.dResult.kind):'')+'</div>';
-  return hero('04','검토를 시작해야 하는 사건을 놓치지 않을까?','외부 공개 전에 새 기술과 과거 비공개 판단의 전제 변화를 찾아 사람에게 질문합니다.',
-    [badge('D'),badge('팀 제작 가상 사건','amber')],['공개 사건','검토 신호','담당자 결정','전제 재확인'])+
-    shell(main,side('IP 담당자가 검토 요청·정보 부족·제외를 결정하고 판단 이유를 남깁니다.','현재는 표현 규칙과 가상 기록에 의존합니다. 특허성이나 공개 가능 여부를 자동 결정하지 않습니다.','실제 검토 누락 사건과 과거 IP 판단의 이유·전제를 확보할 수 있을까요?','검증 단계: 통제 사례 2개 + 사용자 1명 검토'));
+function summary(){return `<div class="workspace-head"><div><span class="eyebrow">MEETING / TOPIC COMPARISON</span><h2>우리 팀이 풀고 싶은 문제를 고르세요</h2><p>체험의 재미와 실제 업무의 필요성을 함께 생각해 주세요.</p></div></div><div class="comparison-grid">${L.topics.map(t=>panel(t.n+' · '+t.name,`<p class="small">${t.role} · ${t.problem}</p>${['empathy','use','data','human'].map((key,i)=>select(['문제 공감도','활용 장면이 그려지는가','자료를 확보할 수 있는가','사람 판단이 필요한가'][i],'rate-'+t.id+'-'+key,state.feedback[t.id]?.[key]||'',[['','아직 평가 안 함'],['1','1 · 낮음'],['2','2'],['3','3 · 보통'],['4','4'],['5','5 · 높음']])).join('')}`)).join('')}</div>${panel('회의 의견 보관',`${select('우선 논의할 후보','meeting-vote',state.vote,[['','아직 선택하지 않음'],...L.topics.map(t=>[t.id,t.name])])}${area('선택 이유와 확보할 수 있는 자료','meeting-note',state.note)}<div class="controls">${btn('export','회의 의견 파일 준비')}</div>${exportText?`<div class="result success"><p>판단·이유·평가를 포함한 파일을 준비했습니다.</p><a class="primary download-link" id="download-feedback" download="u3-meeting-feedback.json" href="data:application/json;charset=utf-8,${encodeURIComponent(exportText)}">JSON 파일 내려받기</a><details><summary>파일 내용 보기 · 다운로드가 안 되면 복사</summary><textarea readonly aria-label="회의 의견 JSON">${esc(exportText)}</textarea></details></div>`:''}<p class="small muted">서버에 자동 제출되지 않습니다. 파일을 회의 진행자에게 직접 전달하세요. 브라우저 저장 기록은 ‘처음부터’로 주제별 초기화할 수 있습니다.</p>`)} `;}
+function showHelp(){const t=L.topics.find(t=>t.id===state.topic);if(!t){$('#help-title').textContent='주제 비교 안내';$('#help-body').innerHTML='<p>각 주제의 업무 체험하기를 눌러 입력부터 결과까지 처리해 보세요. 주제 안의 도움말은 사용자·문제·시스템 역할·사람 판단과 다음 작업을 설명합니다.</p><p>비교와 회의 의견에서 문제 공감도, 활용 장면, 자료 확보 가능성, 사람 판단의 필요성을 평가합니다. 의견 파일을 내려받아 회의 진행자에게 전달해 주세요.</p><p>업무는 가상이며 실제 시스템과 연동하지 않습니다. 입력은 이 브라우저에만 저장됩니다.</p>';$('#help-dialog').showModal();return;}$('#help-title').textContent=t.name+' · 이 기능 이해하기';$('#help-body').innerHTML=`<p>${t.guide}</p><dl class="help-dl"><dt>누가 쓰나요?</dt><dd>${t.role}</dd><dt>어떤 문제인가요?</dt><dd>${t.problem}</dd><dt>시스템은 무엇을 하나요?</dt><dd>${t.system}</dd><dt>사람은 무엇을 결정하나요?</dt><dd>${t.human}</dd><dt>무엇을 해보나요?</dt><dd>${t.goal}</dd><dt>실제 개발에 필요한 자료</dt><dd>${t.data}</dd></dl><h3>이 화면의 범위와 출처</h3><p>${t.id==='patent'?'기술 설명과 업무는 가상입니다. 공개 문헌 3건의 제목·짧은 원문 발췌는 출처에서 확인한 자료입니다. 기존 KIPRIS 성능 평가와 별개의 목업입니다.':'가상 프로젝트의 준비된 자료와 규칙으로 처리합니다. 실제 시스템 연동이나 현장 성능 검증 결과가 아닙니다.'}</p><a href="${t.source}" target="_blank" rel="noopener noreferrer">참고한 업무 흐름: ${t.sourceName} ↗</a><p>평가 근거: B-3·D 기존 제작 사례와 KIPRIS 실험은 별도 기록에 보존되어 있습니다. 이 체험에서 얻는 점수는 팀 의견입니다.</p>`;$('#help-dialog').showModal();}
+function changeTopic(id){state.topic=id;notice='';if(L.topics.some(t=>t.id===id)&&!state.visited.includes(id))state.visited.push(id);persist();render();$('#page-content').focus();window.scrollTo({top:0,behavior:'instant'});}
+function payload(){return {schema:'u3-product-feedback-v2',created_at:new Date().toISOString(),data_kind:'scenario_mock_with_curated_public_patent_excerpts',feedback:state.feedback,vote:state.vote,note:state.note,progress:{b1:state.b1,b2:state.b2,b3:state.b3,d:state.d,patent:state.patent}};}
+async function perform(action){
+  if(action==='help'){showHelp();return;}
+  if(action==='reset'){const id=state.topic;state[id]=fresh()[id];notice='이 주제의 체험을 초기화했습니다.';persist();render();return;}
+  if(action==='export'){exportText=JSON.stringify(payload(),null,2);notice='회의 의견 파일을 준비했습니다.';render();return;}
+  if(busy)return;busy=true;notice='작업 중…';render();await new Promise(resolve=>setTimeout(resolve,240));
+  const a=state.b1,b=state.b2,c=state.b3,q=state.d,p=state.patent;
+  switch(action){
+    case 'b1-group':a.stage=Math.max(a.stage,1);notice='같은 코드의 해결 이력과 다른 상품 조건을 찾았습니다.';break;
+    case 'b1-replay':a.results=E.replay(L.orders,a.scope);a.stage=2;a.approved=false;notice='과거 주문 4건의 실제 해결 기록과 비교했습니다.';break;
+    case 'b1-approve':if(a.results&&a.results.every(r=>r.correct)&&a.results.some(r=>r.matched)){a.approved=true;a.stage=3;notice='시험한 조건으로 규칙을 승인했습니다.';}break;
+    case 'b1-process':if(a.approved){const match=E.mappingMatch({external:'MUG-WHT',volume:Number(a.volume),channel:a.channel},a.scope);a.outcome={auto:match,message:match?'O-1201 → SKU-MUG-350-W · 출고 대기 상태로 전환했습니다.':'승인 범위 밖입니다. 상품 용량·판매 채널을 확인하는 작업을 만들었습니다.'};a.stage=4;notice=a.outcome.message;}break;
+    case 'b2-scan':b.stage=1;notice=b.fixed?'공유 쓰기 충돌 후보가 없습니다.':'고객 상태 필드의 쓰기 충돌을 찾았습니다.';break;
+    case 'b2-run':case 'b2-both':if(b.stage>=1){b.runs=(action==='b2-both'?['mc','cm']:[b.order]).map(order=>({order,output:E.crmRun(order==='mc'?['marketing','cs']:['cs','marketing'],b.fixed,{name:b.name,status:'신규 문의'})}));b.stage=b.fixed?3:2;b.approved=false;notice='시험 입력에서 실행 결과를 계산했습니다.';}break;
+    case 'b2-fix':if(b.runs.length){b.fixed=true;b.runs=[];b.stage=2;b.approved=false;notice='CS 전용 상태 필드를 추가했습니다. 두 순서를 다시 시험하세요.';}break;
+    case 'b2-approve':if(b.fixed&&b.runs.length===2){b.approved=true;b.stage=4;notice='격리 재시험 결과를 승인했습니다.';}break;
+    case 'b3-parse':c.parsed=E.parseShippingRequest(c.request);notice=c.parsed.message;break;
+    case 'b3-confirm':if(c.parsed?.ok){c.stage=Math.max(c.stage,1);notice='영향 후보 4개를 표시했습니다. 상담 문구 누락을 포함해 직접 범위를 보정할 수 있습니다.';}break;
+    case 'b3-add':if(c.stage>=1){c.selected=c.selected.includes(c.node)?c.selected.filter(x=>x!==c.node):[...c.selected,c.node];c.checked=false;c.approved=false;notice='영향 범위를 변경했습니다.';}break;
+    case 'b3-save':if(c.stage>=1){c.contents[c.node]=c.drafts?.[c.node]??c.contents[c.node]??L.artifacts.find(x=>x.id===c.node).before;if(c.node==='tests')c.coverage=false;if(c.drafts)delete c.drafts[c.node];c.checked=false;c.approved=false;notice='프로젝트 사본에 편집 내용을 저장했습니다.';}break;
+    case 'b3-apply':if(c.stage>=1){for(const x of L.artifacts){if(c.selected.includes(x.id)&&x.affected&&x.id!=='tests')c.contents[x.id]=x.after;if(c.drafts)delete c.drafts[x.id];}c.stage=2;c.checked=false;c.approved=false;notice='선택한 연결 자료를 반영했습니다. 테스트는 별도로 경계값을 추가해야 합니다.';}break;
+    case 'b3-tests':if(c.stage>=2){c.coverage=true;c.contents.tests=L.artifacts.find(x=>x.id==='tests').after;if(c.drafts)delete c.drafts.tests;c.checked=false;c.approved=false;notice='새 경계값 2건과 기존 5만원 테스트를 실행해 3건 통과했습니다.';}break;
+    case 'b3-check':if(c.stage>=2){c.checked=true;c.stage=3;notice='영향 자료 전체의 현재 상태를 검사했습니다.';}break;
+    case 'b3-report':if(!c.selected.includes('cs'))c.selected.push('cs');c.node='cs';c.checked=false;c.approved=false;notice='상담 문구 누락을 기록하고 반영 대상에 추가했습니다. 변경 반영 후 다시 검사하세요.';break;
+    case 'b3-approve':if(E.shippingCheck(L.artifacts,c.contents,c.coverage).every(x=>['updated','unrelated'].includes(x.status))){c.approved=true;c.stage=4;notice='변경 완료 기록을 남겼습니다.';}break;
+    case 'd-analyze':q.analyzed=true;q.stage=Math.max(q.stage,1);notice='변경 4건을 공개 일정과 과거 판단에 연결했습니다.';break;
+    case 'd-info':q.info=true;q.stage=2;notice='개발자 답변을 받았습니다. 버퍼 개선은 서버 내부 변경입니다.';break;
+    case 'd-record':{
+      const missing=L.events.filter(x=>!q.decisions[x.id]||q.decisions[x.id]==='pending'||!(q.reasons[x.id]||'').trim());
+      if(missing.length){notice='기록을 보류했습니다. 네 항목 모두 처리 방법과 판단 이유를 적어 주세요.';break;}
+      const premise=q.premises.sdk||$('#d-premise-sdk')?.value;
+      if(!(premise||'').trim()){notice='SDK 판단의 전제를 적어 주세요.';break;}
+      if(q.decisions.sdk!=='hold'&&!/서버/.test(premise)){notice='전제는 압축 구현을 서버에 유지하는 조건으로 적어 주세요. 상황 변화 체험은 이 조건을 비교합니다.';break;}
+      q.premises.sdk=premise;(q.records ||= []).push({at:new Date().toISOString(),decisions:{...q.decisions},reasons:{...q.reasons},premise});q.recorded=true;q.stage=3;notice='판단 이유·전제와 후속 작업을 저장했습니다.';break;
+    }
+    case 'd-change':if(q.recorded&&q.decisions.sdk!=='hold'){q.changed=true;q.stage=4;notice='새 SDK 변경이 저장한 전제와 달라 재검토 요청을 만들었습니다.';}break;
+    case 'patent-search':p.searched=true;p.expanded=false;p.stage=1;{const found=E.patentFilter(L.patents,p.description,p.mode,false);p.node=found[0]?.id||'';notice=found.length?'준비된 문헌에서 후보를 찾았습니다.':'지원 범위의 센서 기술 설명을 입력해 주세요.';}break;
+    case 'patent-expand':p.expanded=true;p.stage=2;notice='센서 전력 절감 문헌까지 범위를 확대했습니다.';break;
+    case 'patent-save':if(!p.searched){notice='기술 설명을 변경했습니다. 후보를 다시 탐색하세요.';break;}if(!p.choices[p.node]||p.choices[p.node]==='pending'||!(p.reasons[p.node]||'').trim()){notice='저장하려면 검토 판단과 이유를 입력해 주세요.';}else{p.saved=true;p.stage=4;notice='문헌의 검토 판단과 이유를 저장했습니다.';}break;
+  }
+  busy=false;persist();render();
 }
-function patent(){
-  const c=DATA.patent[state.patentCase],f=DATA.patent_funnel;
-  let main='<div class="panel"><h3>1. 공개 특허 검색 파이프라인</h3><p class="muted">이 채팅에서 KIPRIS로 수집해 평가한 탐색 결과입니다. 이 페이지는 API를 새로 호출하지 않습니다.</p>'+
-    '<div class="metric-row"><div class="metric"><strong>'+f.queries+'</strong><span>검토한 질의</span></div><div class="metric"><strong>'+f.citation_proxy_pairs+'</strong><span>인용 proxy 연결</span></div><div class="metric"><strong>'+f.retrieved_pairs+'</strong><span>실제 검색 후보에 포함</span></div></div>'+
-    '<div class="funnel"><span style="width:'+Math.round(f.retrieved_pairs/f.citation_proxy_pairs*100)+'%"></span></div>'+
-    '<p class="small muted">검색어 최대 2개·검색어별 첫 500행 조건에서 15/77만 후보에 포함됐습니다. 정답 문헌을 후보에 강제로 넣지 않은 결과입니다.</p></div>'+
-    '<div class="panel"><h3>2. 저장된 검색 사례 살펴보기</h3>'+
-    field('검토 기술','patent-case',DATA.patent.map((x,i)=>[i,x.query]),state.patentCase)+
-    '<div class="result"><h3>'+escapeHtml(c.query)+'</h3><p>출원번호 '+escapeHtml(c.application)+'</p><p class="small">'+escapeHtml(c.note)+'</p></div>'+
-    c.ranked.map((id,i)=>{
-      const key=state.patentCase+':'+id,choice=state.patentChoices[key]||'pending';
-      return '<div class="record"><div class="record-row"><h4>저장 순위 '+(state.patentCase===0?i+1:54)+'위 · '+escapeHtml(id)+'</h4>'+badge('공개 공보 식별자','gray')+'</div>'+
-        '<p class="small muted">이 정적 시연에는 공보의 초록·청구항이 없어 관련성 판단을 완료할 수 없습니다.</p>'+
-        field('사람의 다음 행동','patent-'+i,[['pending','아직 확인 안 함'],['fetch','원문 확인 요청'],['hold','보류']],choice)+'</div>';
-    }).join('')+'<button class="primary" data-action="patent-check">3. 검토 작업 만들기</button>'+
-    (state.patentResult?resultBox(state.patentResult.title,state.patentResult.body,'warn'):'')+'</div>';
-  return hero('05','검색된 특허 중 무엇을 먼저 검토할까?','진주님 작업의 검색 후 사람 검토 흐름과 이 채팅의 검색 평가가 만나는 지점입니다. D의 사건 탐지와는 별도 질문입니다.',
-    [badge('특허 검색 보조'),badge('KIPRIS 공개 자료','green')],['기술 입력','후보 수집·순위','원문 검토','사람 판단'])+
-    shell(main,side('담당자가 문헌 원문과 근거를 보고 검토 우선순위·판단 이유를 결정합니다.','정답 주입 순위 평가와 실제 후보 수집 결과는 구분해야 합니다. 이 화면의 번호만으로 문헌 관련성을 판단할 수 없습니다.','후보 포함률을 올릴 검색어·IPC 전략과 원문 확인 자료를 마련할 수 있을까요?','검증 단계: 실제 KIPRIS 탐색 30건, 인용 proxy 기반'));
-}
-function summary(){
-  const options=[['b1','반복 예외'],['b2','자동화 충돌'],['b3','변경 완료'],['d','IP 사건 탐지'],['patent','특허 검색 보조']];
-  let main='<div class="panel"><h2>회의에서 한 가지를 정한다면?</h2><p class="muted">사용자·반복 업무·확보할 수 있는 데이터·사람의 결정 지점을 기준으로 다음 검증 후보를 고르세요.</p>'+
-    '<div class="feedback-grid">'+options.map(([id,title])=>'<button class="'+(state.vote===id?'active':'')+'" data-vote="'+id+'">'+title+'</button>').join('')+'</div>'+
-    '<div class="field" style="margin-top:18px"><label for="meeting-note">선택 이유와 다음에 구할 자료</label><textarea id="meeting-note" placeholder="예: 변경 전후 FAQ와 설정 자료를 받을 수 있음">'+escapeHtml(state.note)+'</textarea></div>'+
-    '<div class="controls"><button class="primary" data-action="download">내 회의 의견 JSON 내려받기</button></div>'+
-    '<p class="small muted">서버에 자동 제출되지 않습니다. 받은 파일을 회의 진행자에게 직접 전달해야 합니다.</p></div>';
-  const aside=side('팀이 우선 검증할 한 업무와 필요한 실제 자료를 결정합니다.','B-3은 가장 구체적인 변경 완료 흐름, D·특허는 서로 다른 IP 업무, B-1·B-2는 실제 이력·계약 확보가 관문입니다.','다음 회의까지 누가 어떤 자료를 확보할 수 있을까요?','회의 기록은 개인 다운로드 파일에만 남습니다.');
-  return hero('✓','회의 결론을 남겨 주세요','화면의 완성도와 실제 업무 검증 수준을 구분해, 다음에 검증할 후보를 정합니다.',
-    [badge('한 명당 한 의견'),badge('서버 저장 없음','amber')],['후보 체험','근거 비교','우선순위 선택','자료 확보'])+shell(main,aside);
-}
-function changeTopic(id){state.topic=id;render();$('#page-content').focus()}
 document.addEventListener('click',event=>{
-  const topic=event.target.closest('[data-topic]');
-  if(topic){changeTopic(topic.dataset.topic);return}
-  const vote=event.target.closest('[data-vote]');
-  if(vote){state.vote=vote.dataset.vote;render();return}
-  const action=event.target.closest('[data-action]');
-  if(!action)return;
-  switch(action.dataset.action){
-    case 'b1-approve': state.b1Approved=!state.b1Approved;state.b1Result=null;break;
-    case 'b1-evaluate':{
-      const answer=ENGINE.exceptionDecision({type:state.b1Type,consent:state.b1Consent},state.b1Approved);
-      state.b1Result='<p><strong>'+answer.action+'</strong></p><p>'+answer.reason+'</p>';break;
-    }
-    case 'b2-scan':state.b2Findings=ENGINE.conflicts(EXISTING,NEW_FLOWS[state.b2Flow]);state.b2Action=null;break;
-    case 'b2-fix':state.b2Action='<p>조건·쓰기 대상을 조정한 뒤 격리 시험을 요청합니다. 이 회의 시연은 실제 n8n을 실행하지 않습니다.</p>';break;
-    case 'b2-hold':state.b2Action='<p>배포를 보류하고 운영자에게 충돌 근거와 미확인 사항을 전달합니다.</p>';break;
-    case 'b3-check':{
-      const c=DATA.cases[state.b3Case],counts={pending:0,unrelated:0,hold:0,updated:0,stale:0,mixed:0,uncertain:0},work=[];
-      for(const x of c.artifacts){
-        const choice=state.b3Choices[state.b3Case+':'+x.id]||'pending';
-        if(choice==='related'){const check=ENGINE.changeState(x.after,c.old_forms,c.new_forms);counts[check.state]++;if(check.state!=='updated')work.push(x.id+' ('+check.reason+')')}
-        else counts[choice]++;
-      }
-      const blocked=counts.stale+counts.mixed+counts.uncertain+counts.hold+counts.pending;
-      state.b3Result={title:blocked?'변경 완료 보류':'사람 판단 범위에서 완료 후보',kind:blocked?'warn':'success',
-        body:'<p>새 값 확인 '+counts.updated+' · 이전 값 잔존 '+counts.stale+' · 문맥 확인 '+(counts.mixed+counts.uncertain)+' · 관련 없음 '+counts.unrelated+' · 보류/미판단 '+(counts.hold+counts.pending)+'</p>'+
-          (work.length?'<p>재확인 작업: '+escapeHtml(work.join(', '))+'</p>':'')+'<p class="small">값 일치와 사람의 영향 판단을 조합한 결과입니다. 실제 시스템 반영 완료를 증명하지 않습니다.</p>'};
-      break;
-    }
-    case 'd-check':{
-      const c=DATA.cases[state.dCase],r=[],h=[],premise=[],pending=[];
-      for(const x of c.events){
-        const choice=state.dChoices[state.dCase+':'+x.id]||'pending';
-        if(choice==='review'){r.push(x.id);if(ENGINE.ipSignal(x).premise)premise.push(x.id)}
-        if(choice==='hold')h.push(x.id);
-        if(choice==='pending')pending.push(x.id);
-      }
-      state.dResult={title:'검토 요청 '+r.length+'건 · 추가 정보 '+h.length+'건',kind:h.length||pending.length?'warn':'',
-        body:'<p>담당자 검토 카드: '+escapeHtml(r.join(', ')||'없음')+'</p><p>정보 요청: '+escapeHtml(h.join(', ')||'없음')+
-          '</p><p>과거 판단 전제 재확인: '+escapeHtml(premise.join(', ')||'없음')+'</p><p class="small">미판단 '+pending.length+'건. 이는 업무 요청 목록이며 특허성·공개 가능 여부의 결론이 아닙니다.</p>'};
-      break;
-    }
-    case 'patent-check':{
-      const c=DATA.patent[state.patentCase],fetch=[],hold=[];
-      for(const id of c.ranked){const choice=state.patentChoices[state.patentCase+':'+id]||'pending';if(choice==='fetch')fetch.push(id);if(choice==='hold')hold.push(id)}
-      state.patentResult={title:'원문 확인 작업 '+fetch.length+'건',
-        body:'<p>원문 요청: '+escapeHtml(fetch.join(', ')||'없음')+'</p><p>보류: '+escapeHtml(hold.join(', ')||'없음')+
-          '</p><p class="small">원문 초록·청구항 확인 후에만 기술 관련성을 검토할 수 있습니다.</p>'};
-      break;
-    }
-    case 'download':{
-      state.note=$('#meeting-note').value;
-      const payload={schema:'u3-meeting-feedback-v1',created_at:new Date().toISOString(),vote:state.vote,note:state.note,
-        b1:{approved:state.b1Approved,type:state.b1Type,consent:state.b1Consent},
-        b2:{flow:state.b2Flow,findings:state.b2Findings,action:state.b2Action},
-        b3:{case:state.b3Case,choices:state.b3Choices,reasons:state.b3Reasons},
-        d:{case:state.dCase,choices:state.dChoices,reasons:state.dReasons},
-        patent:{case:state.patentCase,choices:state.patentChoices}};
-      const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));
-      const anchor=document.createElement('a');anchor.href=url;anchor.download='u3-meeting-feedback.json';anchor.click();
-      setTimeout(()=>URL.revokeObjectURL(url),1000);return;
-    }
-  }
-  render();
+  const el=event.target.closest('[data-topic],[data-action],[data-node],[data-patent],.hint-trigger');if(!el)return;
+  if(el.matches('.hint-trigger')){const open=el.getAttribute('aria-expanded')==='true';el.setAttribute('aria-expanded',String(!open));el.closest('.hint').classList.toggle('dismissed',open);return;}
+  if(busy)return;
+  if(el.dataset.topic)changeTopic(el.dataset.topic);
+  else if(el.dataset.node){state.b3.node=el.dataset.node;persist();render();}
+  else if(el.dataset.patent){state.patent.node=el.dataset.patent;state.patent.stage=Math.max(state.patent.stage,2);persist();render();}
+  else perform(el.dataset.action);
 });
-document.addEventListener('change',event=>{
-  const id=event.target.id,value=event.target.value;
-  if(id==='b1-type'){state.b1Type=value;state.b1Result=null}
-  else if(id==='b1-consent'){state.b1Consent=value==='yes';state.b1Result=null}
-  else if(id==='b2-flow'){state.b2Flow=value;state.b2Findings=null;state.b2Action=null}
-  else if(id==='b3-case'){state.b3Case=Number(value);state.b3Result=null}
-  else if(id.startsWith('b3-')){state.b3Choices[state.b3Case+':'+DATA.cases[state.b3Case].artifacts[Number(id.slice(3))].id]=value;state.b3Result=null}
-  else if(id==='d-case'){state.dCase=Number(value);state.dResult=null}
-  else if(id.startsWith('d-')){state.dChoices[state.dCase+':'+DATA.cases[state.dCase].events[Number(id.slice(2))].id]=value;state.dResult=null}
-  else if(id==='patent-case'){state.patentCase=Number(value);state.patentResult=null}
-  else if(id.startsWith('patent-')){state.patentChoices[state.patentCase+':'+DATA.patent[state.patentCase].ranked[Number(id.slice(7))]]=value;state.patentResult=null}
-  else return;
-  render();
-});
-document.addEventListener('input',event=>{
-  const id=event.target.id;
-  if(id==='meeting-note')state.note=event.target.value;
-  else if(id.startsWith('b3-reason-')){
-    const item=DATA.cases[state.b3Case].artifacts[Number(id.slice(10))];
-    if(item)state.b3Reasons[state.b3Case+':'+item.id]=event.target.value;
-  }else if(id.startsWith('d-reason-')){
-    const item=DATA.cases[state.dCase].events[Number(id.slice(9))];
-    if(item)state.dReasons[state.dCase+':'+item.id]=event.target.value;
-  }
-});
-$('#summary-button').onclick=()=>changeTopic('summary');
+function updateField(event){const id=event.target.dataset.field,v=event.target.value;if(!id)return;
+  if(id==='b1-scope'){state.b1.scope=v;state.b1.results=null;state.b1.approved=false;state.b1.outcome=null;state.b1.stage=Math.min(state.b1.stage,1);}
+  else if(id==='b1-volume'||id==='b1-channel'){state.b1[id.slice(3)]=v;state.b1.outcome=null;}
+  else if(id==='b2-name'){state.b2.name=v;state.b2.runs=[];state.b2.approved=false;}
+  else if(id==='b2-order')state.b2.order=v;
+  else if(id==='b3-edit'){(state.b3.drafts ||= {})[state.b3.node]=v;}
+  else if(id==='b3-request'){state.b3.request=v;state.b3.parsed=null;}
+  else if(id.startsWith('d-choice-')){state.d.decisions[id.slice(9)]=v;state.d.recorded=false;state.d.changed=false;}
+  else if(id.startsWith('d-reason-')){state.d.reasons[id.slice(9)]=v;state.d.recorded=false;state.d.changed=false;}
+  else if(id==='d-premise-sdk'){state.d.premises.sdk=v;state.d.recorded=false;state.d.changed=false;}
+  else if(id==='patent-description'||id==='patent-mode'){state.patent[id.slice(7)]=v;state.patent.searched=false;state.patent.stage=0;}
+  else if(id==='patent-choice'){state.patent.choices[state.patent.node]=v;state.patent.saved=false;}
+  else if(id==='patent-reason'){state.patent.reasons[state.patent.node]=v;state.patent.saved=false;}
+  else if(id.startsWith('rate-')){const [,topic,key]=id.split('-');(state.feedback[topic]||= {})[key]=v;exportText='';}
+  else if(id==='meeting-note'){state.note=v;exportText='';}
+  else if(id==='meeting-vote'){state.vote=v;exportText='';}
+  persist();
+  if(event.type==='change'&&!event.target.matches('textarea,input'))render();
+}
+document.addEventListener('input',updateField);document.addEventListener('change',updateField);
+document.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelectorAll('.hint-trigger').forEach(x=>{x.setAttribute('aria-expanded','false');x.closest('.hint').classList.add('dismissed');});});
+document.addEventListener('focusin',event=>event.target.closest('.hint')?.classList.remove('dismissed'));
+document.addEventListener('mouseover',event=>event.target.closest('.hint')?.classList.remove('dismissed'));
+$('#help-close').onclick=()=>$('#help-dialog').close();$('#floating-help').onclick=showHelp;$('#summary-button').onclick=()=>changeTopic('summary');
 render();

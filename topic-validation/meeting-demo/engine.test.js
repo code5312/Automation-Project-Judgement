@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const {exceptionDecision, conflicts, changeState, ipSignal} = require('./engine');
+const {exceptionDecision, conflicts, changeState, ipSignal,replay,crmRun,parseShippingRequest,shippingCheck,patentFilter} = require('./engine');
 
 assert.equal(exceptionDecision({type:'grade_sync_delay',consent:true},false).status,'approval');
 assert.equal(exceptionDecision({type:'grade_sync_delay',consent:true},true).status,'ready');
@@ -10,9 +10,36 @@ const hits=conflicts(prior,{trigger:'new_inquiry',writes:{'customer.status':'처
 assert.deepEqual(new Set(hits.map(x=>x.kind)),new Set(['쓰기-쓰기','읽기-쓰기','중복 실행']));
 assert.equal(conflicts(prior,{trigger:'consultation_end',writes:{'customer.memo':'추가'}}).length,0);
 assert.equal(changeState('배송비 면제 기준은 삼만 원입니다.',['5만원','50000'],['3만원','30000']).state,'updated');
-assert.equal(changeState('assert shipping_fee(50000) == 0',['5만원','50000'],['3만원','30000']).state,'stale');
+// A generic string check is not used to judge unchanged, still-valid tests.
 assert.equal(changeState('고객님, 환불은 7일 안에 신청하세요.',['7일'],['14일']).state,'stale');
 assert.equal(changeState('기간 안내 문구와 규칙을 대조한다.',['7일'],['14일']).state,'uncertain');
 assert.equal(ipSignal({record:'trade_secret',text:'고객용 SDK에 내부 규칙 포함'}).premise,true);
 assert.equal(ipSignal({record:'none',text:'새로운 센서 융합 알고리즘을 학회에 공개'}).state,'review');
-console.log('회의용 판단 규칙 검증 통과');
+const fs=require('node:fs'),vm=require('node:vm'),ctx={window:{}};
+vm.runInNewContext(fs.readFileSync(__dirname+'/scenarios.js','utf8'),ctx);
+const L=ctx.window.LAB;
+assert.equal(replay(L.orders,'broad').filter(x=>!x.correct).length,2);
+const safe=replay(L.orders,'safe');
+assert.equal(safe.filter(x=>x.matched).length,2);
+assert.ok(safe.every(x=>x.correct));
+const mc=crmRun(['marketing','cs'],false,{status:'신규 문의'});
+const cm=crmRun(['cs','marketing'],false,{status:'신규 문의'});
+assert.notEqual(mc.customer.status,cm.customer.status);
+assert.deepEqual(crmRun(['marketing','cs'],true,{}).customer,crmRun(['cs','marketing'],true,{}).customer);
+assert.equal(parseShippingRequest('일반 고객 무료배송 기준을 오만 원에서 삼만 원으로 변경').ok,true);
+assert.equal(parseShippingRequest('VIP 무료배송을 5만원에서 3만원으로 바꿔').ok,false);
+assert.equal(parseShippingRequest('5만원에서 3만원으로 무료배송 변경하지 마').ok,false);
+assert.equal(parseShippingRequest('환불 기간을 5만원에서 3만원으로').ok,false);
+assert.equal(parseShippingRequest('무료배송 3만원에서 5만원').ok,false);
+assert.equal(parseShippingRequest('무료배송 5만원에서 3만원, 5만원 상품 제외').ok,false);
+const baseline=shippingCheck(L.artifacts,{},false);
+assert.equal(baseline.find(x=>x.id==='tests').status,'coverage');
+assert.equal(baseline.find(x=>x.id==='payment').status,'unrelated');
+const contents=Object.fromEntries(L.artifacts.filter(x=>x.candidate).map(x=>[x.id,x.after]));
+assert.equal(shippingCheck(L.artifacts,contents,true).find(x=>x.id==='cs').status,'stale');
+contents.cs=L.artifacts.find(x=>x.id==='cs').after;
+assert.ok(shippingCheck(L.artifacts,contents,true).every(x=>['updated','unrelated'].includes(x.status)));
+assert.equal(patentFilter(L.patents,'센서 압축 SDK','all',false).length,2);
+assert.equal(patentFilter(L.patents,'센서 압축 SDK','all',true).length,3);
+assert.equal(patentFilter(L.patents,'아무 문헌','all',true).length,0);
+console.log('상품 매핑·실행 순서·배송 경계값·공개 문헌 탐색 검증 통과');
