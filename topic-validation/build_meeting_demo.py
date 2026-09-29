@@ -22,6 +22,10 @@ def main() -> None:
             "name": "환불 기간 7일→14일" if filename == "fixtures.json"
                     else "무료배송 기준 5만→3만원",
             "change": change["change"],
+            "old_forms": ["7일", "일주일"] if filename == "fixtures.json"
+                         else ["5만원", "오만 원", "50000"],
+            "new_forms": ["14일"] if filename == "fixtures.json"
+                         else ["3만원", "삼만 원", "30000"],
             "artifacts": [{
                 "id": row["id"], "kind": row["kind"], "before": row["before"],
                 "after": row["after"], "suggested": row["id"] in change_suggestions,
@@ -46,7 +50,9 @@ def main() -> None:
          "candidate_count": None, "ranked": ["1020007004339"],
          "note": "탐색 평가에서 연결된 인용 proxy 문헌이 단어 BM25 54위였다. 화면의 번호는 이 실패 사례의 문헌만 표시한다."},
     ]
-    payload = {"cases": cases, "patent": patent}
+    payload = {"cases": cases, "patent": patent,
+               "patent_funnel": {"queries": 30, "citation_proxy_pairs": 77,
+                                 "retrieved_pairs": 15, "top10_word_recall": 0.098}}
     output = HERE / "meeting-demo" / "data.js"
     output.parent.mkdir(exist_ok=True)
     safe = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
