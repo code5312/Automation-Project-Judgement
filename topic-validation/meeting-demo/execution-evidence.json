@@ -1,0 +1,703 @@
+{
+  "schema": "u3-execution-evidence-v1",
+  "run_at": "2026-09-29T23:33:40.391878+00:00",
+  "topics": {
+    "b1": {
+      "kind": "controlled synthetic inputs / real HTTP and SQLite execution",
+      "failure": {
+        "http": 422,
+        "body": {
+          "error": "mapping missing"
+        }
+      },
+      "human_corrected_replay": {
+        "http": 200,
+        "body": {
+          "accepted": true,
+          "sku": "CUP350"
+        }
+      },
+      "same_retry": {
+        "http": 200,
+        "body": {
+          "accepted": true,
+          "sku": "CUP350"
+        }
+      },
+      "conflicting_retry": {
+        "http": 409,
+        "body": {
+          "error": "idempotency conflict"
+        }
+      },
+      "persisted_orders": 1,
+      "new_input_rule_matches": [
+        true,
+        false,
+        false
+      ],
+      "limit": "No production remedy history; reuse rule supplied by experiment author."
+    },
+    "b2": {
+      "kind": "controlled automation client / real HTTP and SQLite execution",
+      "runs": [
+        {
+          "separate_fields": false,
+          "order": [
+            "marketing",
+            "cs"
+          ],
+          "events": [
+            {
+              "flow": "marketing",
+              "write": {
+                "status": "nurturing"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            },
+            {
+              "flow": "cs",
+              "write": {
+                "status": "support_pending"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            }
+          ],
+          "database_result": [
+            "support_pending",
+            null,
+            null
+          ]
+        },
+        {
+          "separate_fields": false,
+          "order": [
+            "cs",
+            "marketing"
+          ],
+          "events": [
+            {
+              "flow": "cs",
+              "write": {
+                "status": "support_pending"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            },
+            {
+              "flow": "marketing",
+              "write": {
+                "status": "nurturing"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            }
+          ],
+          "database_result": [
+            "nurturing",
+            null,
+            null
+          ]
+        },
+        {
+          "separate_fields": true,
+          "order": [
+            "marketing",
+            "cs"
+          ],
+          "events": [
+            {
+              "flow": "marketing",
+              "write": {
+                "marketing_status": "nurturing"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            },
+            {
+              "flow": "cs",
+              "write": {
+                "cs_status": "support_pending"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            }
+          ],
+          "database_result": [
+            "new",
+            "nurturing",
+            "support_pending"
+          ]
+        },
+        {
+          "separate_fields": true,
+          "order": [
+            "cs",
+            "marketing"
+          ],
+          "events": [
+            {
+              "flow": "cs",
+              "write": {
+                "cs_status": "support_pending"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            },
+            {
+              "flow": "marketing",
+              "write": {
+                "marketing_status": "nurturing"
+              },
+              "response": {
+                "http": 200,
+                "body": {}
+              }
+            }
+          ],
+          "database_result": [
+            "new",
+            "nurturing",
+            "support_pending"
+          ]
+        }
+      ],
+      "limit": "Sequential ordering experiment, not concurrent scheduling or n8n execution. Field separation only tested for this supplied policy."
+    },
+    "b3": {
+      "kind": "controlled project / actual file mutation and executable function",
+      "before": {
+        "executed_boundary_cases": [
+          {
+            "total": 29999,
+            "expected": false,
+            "actual": false
+          },
+          {
+            "total": 30000,
+            "expected": true,
+            "actual": false
+          },
+          {
+            "total": 50000,
+            "expected": true,
+            "actual": true
+          }
+        ],
+        "stale_documents": [
+          "policy.md",
+          "faq.md",
+          "cs.md"
+        ],
+        "complete": false
+      },
+      "partial": {
+        "executed_boundary_cases": [
+          {
+            "total": 29999,
+            "expected": false,
+            "actual": false
+          },
+          {
+            "total": 30000,
+            "expected": true,
+            "actual": true
+          },
+          {
+            "total": 50000,
+            "expected": true,
+            "actual": true
+          }
+        ],
+        "stale_documents": [
+          "cs.md"
+        ],
+        "complete": false
+      },
+      "corrected": {
+        "executed_boundary_cases": [
+          {
+            "total": 29999,
+            "expected": false,
+            "actual": false
+          },
+          {
+            "total": 30000,
+            "expected": true,
+            "actual": true
+          },
+          {
+            "total": 50000,
+            "expected": true,
+            "actual": true
+          }
+        ],
+        "stale_documents": [],
+        "complete": true
+      },
+      "unrelated_vip_unchanged": true,
+      "limit": "Known affected-file list; does not verify automatic dependency discovery in a real repository."
+    },
+    "d": {
+      "kind": "live public GitHub SDK release metadata",
+      "repository": "getsentry/sentry-python",
+      "old_tag": "2.70.0",
+      "new_tag": "2.71.0",
+      "published_at": "2026-09-28T14:04:24Z",
+      "release_url": "https://github.com/getsentry/sentry-python/releases/tag/2.71.0",
+      "comparison_url": "https://github.com/getsentry/sentry-python/compare/2.70.0...2.71.0",
+      "total_commits": 17,
+      "files": [
+        {
+          "path": ".github/workflows/test-integrations-ai.yml",
+          "status": "modified",
+          "additions": 4,
+          "deletions": 0
+        },
+        {
+          "path": "CHANGELOG.md",
+          "status": "modified",
+          "additions": 85,
+          "deletions": 0
+        },
+        {
+          "path": "docs/conf.py",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "pyproject.toml",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "path": "scripts/populate_tox/config.py",
+          "status": "modified",
+          "additions": 7,
+          "deletions": 0
+        },
+        {
+          "path": "scripts/populate_tox/package_dependencies.jsonl",
+          "status": "modified",
+          "additions": 5,
+          "deletions": 8
+        },
+        {
+          "path": "scripts/populate_tox/releases.jsonl",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 5
+        },
+        {
+          "path": "scripts/populate_tox/tox.jinja",
+          "status": "modified",
+          "additions": 2,
+          "deletions": 0
+        },
+        {
+          "path": "scripts/split_tox_gh_actions/split_tox_gh_actions.py",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "path": "sentry_sdk/client.py",
+          "status": "modified",
+          "additions": 49,
+          "deletions": 12
+        },
+        {
+          "path": "sentry_sdk/consts.py",
+          "status": "modified",
+          "additions": 2,
+          "deletions": 1
+        },
+        {
+          "path": "sentry_sdk/integrations/__init__.py",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 0
+        },
+        {
+          "path": "sentry_sdk/integrations/aws_lambda.py",
+          "status": "modified",
+          "additions": 2,
+          "deletions": 2
+        },
+        {
+          "path": "sentry_sdk/integrations/typesafe.py",
+          "status": "added",
+          "additions": 417,
+          "deletions": 0
+        },
+        {
+          "path": "sentry_sdk/profiler/transaction_profiler.py",
+          "status": "modified",
+          "additions": 9,
+          "deletions": 1
+        },
+        {
+          "path": "sentry_sdk/scope.py",
+          "status": "modified",
+          "additions": 3,
+          "deletions": 1
+        },
+        {
+          "path": "sentry_sdk/tracing.py",
+          "status": "modified",
+          "additions": 3,
+          "deletions": 6
+        },
+        {
+          "path": "sentry_sdk/tracing_utils.py",
+          "status": "modified",
+          "additions": 2,
+          "deletions": 5
+        },
+        {
+          "path": "setup.py",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "tests/integrations/aws_lambda/lambda_functions_with_embedded_sdk/BasicOkSpanStreamingDataCollectionUserInfoOff/.gitignore",
+          "status": "added",
+          "additions": 11,
+          "deletions": 0
+        },
+        {
+          "path": "tests/integrations/aws_lambda/lambda_functions_with_embedded_sdk/BasicOkSpanStreamingDataCollectionUserInfoOn/.gitignore",
+          "status": "added",
+          "additions": 11,
+          "deletions": 0
+        },
+        {
+          "path": "tests/integrations/flask/test_flask.py",
+          "status": "modified",
+          "additions": 3,
+          "deletions": 3
+        },
+        {
+          "path": "tests/integrations/graphene/test_graphene.py",
+          "status": "modified",
+          "additions": 3,
+          "deletions": 3
+        },
+        {
+          "path": "tests/integrations/huey/test_huey.py",
+          "status": "modified",
+          "additions": 8,
+          "deletions": 8
+        },
+        {
+          "path": "tests/integrations/loguru/test_loguru.py",
+          "status": "modified",
+          "additions": 19,
+          "deletions": 19
+        },
+        {
+          "path": "tests/integrations/otlp/test_otlp.py",
+          "status": "modified",
+          "additions": 34,
+          "deletions": 0
+        },
+        {
+          "path": "tests/integrations/ray/test_ray.py",
+          "status": "modified",
+          "additions": 8,
+          "deletions": 8
+        },
+        {
+          "path": "tests/integrations/typesafe/__init__.py",
+          "status": "added",
+          "additions": 3,
+          "deletions": 0
+        },
+        {
+          "path": "tests/integrations/typesafe/test_typesafe.py",
+          "status": "added",
+          "additions": 625,
+          "deletions": 0
+        },
+        {
+          "path": "tests/profiler/test_transaction_profiler.py",
+          "status": "modified",
+          "additions": 30,
+          "deletions": 0
+        },
+        {
+          "path": "tests/test_attributes.py",
+          "status": "modified",
+          "additions": 7,
+          "deletions": 7
+        },
+        {
+          "path": "tests/test_basics.py",
+          "status": "modified",
+          "additions": 59,
+          "deletions": 0
+        },
+        {
+          "path": "tests/test_data_collection.py",
+          "status": "modified",
+          "additions": 32,
+          "deletions": 25
+        },
+        {
+          "path": "tests/test_logs.py",
+          "status": "modified",
+          "additions": 40,
+          "deletions": 1
+        },
+        {
+          "path": "tests/test_metrics.py",
+          "status": "modified",
+          "additions": 38,
+          "deletions": 1
+        },
+        {
+          "path": "tests/tracing/test_decorator.py",
+          "status": "modified",
+          "additions": 6,
+          "deletions": 6
+        },
+        {
+          "path": "tests/tracing/test_sampling.py",
+          "status": "modified",
+          "additions": 5,
+          "deletions": 105
+        },
+        {
+          "path": "tests/tracing/test_span_batcher.py",
+          "status": "modified",
+          "additions": 1,
+          "deletions": 1
+        },
+        {
+          "path": "tests/tracing/test_span_streaming.py",
+          "status": "modified",
+          "additions": 66,
+          "deletions": 43
+        },
+        {
+          "path": "tox.ini",
+          "status": "modified",
+          "additions": 170,
+          "deletions": 0
+        },
+        {
+          "path": "uv.lock",
+          "status": "modified",
+          "additions": 17,
+          "deletions": 0
+        }
+      ],
+      "source_digest": "80e4bc02f1a507e430fe196dd212bb431979ae2d3e6b38c2da178af44a174106",
+      "review_signal": "public SDK release changed; no private premise record exists",
+      "ip_judgment_validated": false,
+      "limit": "Public changes only. No company IP decisions, confidentiality facts, or ground truth. GitHub comparison may truncate large diffs."
+    },
+    "patent": {
+      "kind": "live KIPRIS API publication lookup",
+      "application_number": "1020140170841",
+      "matched_documents": 1,
+      "title": "양자점 전사 인쇄 방법",
+      "opening_date": null,
+      "field_names": [
+        "Abstract",
+        "Applicant",
+        "ApplicationDate",
+        "ApplicationNumber",
+        "DrawingPath",
+        "InternationalpatentclassificationNumber",
+        "InventionName",
+        "PublicDate",
+        "RegistrationDate",
+        "RegistrationNumber",
+        "RegistrationStatus",
+        "SerialNumber",
+        "ThumbnailPath"
+      ],
+      "limit": "Connectivity and metadata only; not a new retrieval quality evaluation."
+    }
+  },
+  "external_trace": {
+    "source": "https://github.com/tobhey/finegrained-traceability/tree/197cf2f395e9e90636436f30d6383465cb9e9f63/datasets/LibEST",
+    "scope": "requirement-to-code retrieval proxy; not change completion or IP review",
+    "requirements_with_gold": 47,
+    "code_files": 14,
+    "gold_links": 204,
+    "mean_recall_at_3": 0.5576494427558257,
+    "mean_recall_at_6": 0.7596420128335022,
+    "mean_precision_at_6": 0.5035460992907802,
+    "mrr": 0.8900709219858156,
+    "requirements_with_missed_links_at_6": 32
+  },
+  "patent_baseline": {
+    "queries": 30,
+    "gold_pairs": 77,
+    "covered_gold_pairs": 15,
+    "pair_coverage": 0.19480519480519481,
+    "queries_with_any_covered_gold": 10,
+    "time_eligible_candidates_median": 286.0,
+    "mean_case_coverage": 0.1711111111111111,
+    "ranking": {
+      "word": {
+        "recall@10": 0.09833333333333333,
+        "recall@20": 0.11611111111111111,
+        "recall@50": 0.14777777777777779,
+        "rr": 0.09131944444444444
+      },
+      "korean_ngram": {
+        "recall@10": 0.056666666666666664,
+        "recall@20": 0.12333333333333334,
+        "recall@50": 0.14333333333333334,
+        "rr": 0.13524319231215784
+      }
+    }
+  },
+  "patent_page_probe": {
+    "selection": "first 3 sorted application IDs, fixed before label access",
+    "positive_injection": false,
+    "new_api_calls": 6,
+    "cases": {
+      "1020110123532": {
+        "search_terms": [
+          "소자",
+          "반도체"
+        ],
+        "stages": [
+          {
+            "through_result": 500,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 856,
+            "time_eligible_candidates": 102,
+            "covered_citation_proxies": 1
+          },
+          {
+            "through_result": 1000,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 1130,
+            "time_eligible_candidates": 113,
+            "covered_citation_proxies": 1
+          },
+          {
+            "through_result": 1500,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 2031,
+            "time_eligible_candidates": 172,
+            "covered_citation_proxies": 1
+          }
+        ],
+        "citation_proxy_count": 2
+      },
+      "1020110127749": {
+        "search_terms": [
+          "거리측정",
+          "오브젝트"
+        ],
+        "stages": [
+          {
+            "through_result": 500,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 998,
+            "time_eligible_candidates": 343,
+            "covered_citation_proxies": 0
+          },
+          {
+            "through_result": 1000,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 1997,
+            "time_eligible_candidates": 647,
+            "covered_citation_proxies": 0
+          },
+          {
+            "through_result": 1500,
+            "page_rows": [
+              500,
+              500
+            ],
+            "unique_candidates": 2997,
+            "time_eligible_candidates": 980,
+            "covered_citation_proxies": 0
+          }
+        ],
+        "citation_proxy_count": 1
+      },
+      "1020120154681": {
+        "search_terms": [
+          "엠엘에이",
+          "라이트"
+        ],
+        "stages": [
+          {
+            "through_result": 500,
+            "page_rows": [
+              118,
+              500
+            ],
+            "unique_candidates": 616,
+            "time_eligible_candidates": 179,
+            "covered_citation_proxies": 0
+          },
+          {
+            "through_result": 1000,
+            "page_rows": [
+              0,
+              500
+            ],
+            "unique_candidates": 1085,
+            "time_eligible_candidates": 271,
+            "covered_citation_proxies": 0
+          },
+          {
+            "through_result": 1500,
+            "page_rows": [
+              0,
+              500
+            ],
+            "unique_candidates": 1585,
+            "time_eligible_candidates": 658,
+            "covered_citation_proxies": 0
+          }
+        ],
+        "citation_proxy_count": 1
+      }
+    },
+    "limit": "Small diagnostic on previously inspected positive-citation cases; no general performance claim."
+  }
+}
