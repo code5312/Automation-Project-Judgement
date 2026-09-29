@@ -1,0 +1,40 @@
+{
+  "provenance": "Second team-authored controlled example, written after inspecting the first baseline. Sanity check only; not an independent benchmark.",
+  "change_completion": {
+    "change": "무료배송 적용 기준을 주문 금액 5만원에서 3만원으로 낮춘다",
+    "old_value": "5만원",
+    "new_value": "3만원",
+    "artifacts": [
+      {"id": "shipping_policy", "kind": "policy", "before": "무료배송은 주문 금액 5만원 이상부터 적용한다.", "after": "무료배송은 주문 금액 3만원 이상부터 적용한다."},
+      {"id": "delivery_faq", "kind": "faq", "before": "오만 원 이상 주문하면 배송비를 받지 않습니다.", "after": "삼만 원 이상 주문하면 배송비를 받지 않습니다."},
+      {"id": "shipping_config", "kind": "config", "before": "free_shipping_min_krw: 50000", "after": "free_shipping_min_krw: 30000"},
+      {"id": "shipping_test", "kind": "test", "before": "assert shipping_fee(50000) == 0", "after": "assert shipping_fee(50000) == 0"},
+      {"id": "cs_delivery", "kind": "cs", "before": "배송비 면제 기준은 5만원입니다.", "after": "배송비 면제 기준은 3만원입니다."},
+      {"id": "refund_policy", "kind": "policy", "before": "환불 처리 기간은 5일이다.", "after": "환불 처리 기간은 5일이다."},
+      {"id": "vip_shipping", "kind": "faq", "before": "VIP 고객은 금액과 무관하게 무료배송입니다.", "after": "VIP 고객은 금액과 무관하게 무료배송입니다."},
+      {"id": "payment_limit", "kind": "config", "before": "max_payment_krw: 50000", "after": "max_payment_krw: 50000"}
+    ],
+    "gold": {
+      "affected_ids": ["shipping_policy", "delivery_faq", "shipping_config", "shipping_test", "cs_delivery"],
+      "must_change_ids": ["shipping_policy", "delivery_faq", "shipping_config", "shipping_test", "cs_delivery"],
+      "stale_after_ids": ["shipping_test"]
+    }
+  },
+  "ip_review": {
+    "release_event": "제품 v3.3 외부 공개 예정",
+    "events": [
+      {"id": "q01", "text": "새 추천 엔진을 공개 버전에 탑재한다.", "review_record": "none", "prior_premise": ""},
+      {"id": "q02", "text": "서버 비공개 규칙을 고객용 플러그인에 포함한다.", "review_record": "trade_secret", "prior_premise": "서버 내부에서만 사용"},
+      {"id": "q03", "text": "새 고객 안내 배너를 추가한다.", "review_record": "none", "prior_premise": ""},
+      {"id": "q04", "text": "이미 검토한 기술의 문서 오탈자를 고친다.", "review_record": "patent_reviewed", "prior_premise": ""},
+      {"id": "q05", "text": "새로운 데이터 정합성 방법을 학회 발표자료에 싣는다.", "review_record": "none", "prior_premise": ""},
+      {"id": "q06", "text": "고객 센터의 운영시간 표시를 바꾼다.", "review_record": "none", "prior_premise": ""},
+      {"id": "q07", "text": "내부 전용 모델을 공개 API 응답에 포함한다.", "review_record": "trade_secret", "prior_premise": "외부에 구현이 노출되지 않음"},
+      {"id": "q08", "text": "기존 알고리즘의 내부 로그 형식만 바꾼다.", "review_record": "patent_reviewed", "prior_premise": ""}
+    ],
+    "gold": {
+      "review_required_ids": ["q01", "q02", "q05", "q07"],
+      "premise_change_ids": ["q02", "q07"]
+    }
+  }
+}

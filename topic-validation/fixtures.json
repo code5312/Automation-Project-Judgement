@@ -1,0 +1,48 @@
+{
+  "provenance": "Team-authored controlled examples. These are not real company records or representative performance samples.",
+  "change_completion": {
+    "change": "환불 신청 가능 기간을 구매 후 7일에서 14일로 변경한다",
+    "old_value": "7일",
+    "new_value": "14일",
+    "artifacts": [
+      {"id": "policy", "kind": "policy", "before": "환불 신청은 구매 후 7일 이내 가능하다.", "after": "환불 신청은 구매 후 14일 이내 가능하다."},
+      {"id": "faq", "kind": "faq", "before": "구매 후 일주일이 지나면 환불 요청을 받지 않습니다.", "after": "구매 후 14일까지 환불 요청을 받습니다."},
+      {"id": "cs_macro", "kind": "cs", "before": "고객님, 취소 또는 환불은 결제일로부터 7일 안에 신청해 주세요.", "after": "고객님, 취소 또는 환불은 결제일로부터 7일 안에 신청해 주세요."},
+      {"id": "refund_config", "kind": "config", "before": "refund_window_days: 7", "after": "refund_window_days: 14"},
+      {"id": "refund_test", "kind": "test", "before": "assert refund_allowed(days_since_purchase=7); assert not refund_allowed(days_since_purchase=8)", "after": "assert refund_allowed(days_since_purchase=14); assert not refund_allowed(days_since_purchase=15)"},
+      {"id": "release_check", "kind": "checklist", "before": "출시 전 환불 기간 안내 문구와 자동화 규칙을 대조한다.", "after": "출시 전 환불 기간 안내 문구와 자동화 규칙을 대조한다."},
+      {"id": "delivery_policy", "kind": "policy", "before": "배송 지연 보상은 발송 후 7일 기준으로 계산한다.", "after": "배송 지연 보상은 발송 후 7일 기준으로 계산한다."},
+      {"id": "account_faq", "kind": "faq", "before": "계정 삭제 요청은 7일 동안 철회할 수 있습니다.", "after": "계정 삭제 요청은 7일 동안 철회할 수 있습니다."},
+      {"id": "membership_config", "kind": "config", "before": "trial_days: 14", "after": "trial_days: 14"},
+      {"id": "privacy_doc", "kind": "policy", "before": "결제정보 보존 기간은 5년입니다.", "after": "결제정보 보존 기간은 5년입니다."},
+      {"id": "return_shipping", "kind": "faq", "before": "반품 배송비는 환불액에서 공제됩니다.", "after": "반품 배송비는 환불액에서 공제됩니다."},
+      {"id": "analytics_test", "kind": "test", "before": "assert daily_refund_report_exists()", "after": "assert daily_refund_report_exists()"}
+    ],
+    "gold": {
+      "affected_ids": ["policy", "faq", "cs_macro", "refund_config", "refund_test", "release_check"],
+      "must_change_ids": ["policy", "faq", "cs_macro", "refund_config", "refund_test"],
+      "stale_after_ids": ["cs_macro"]
+    }
+  },
+  "ip_review": {
+    "release_event": "제품 v3.2 외부 공개 예정",
+    "events": [
+      {"id": "ip01", "text": "새로운 사용자 행동 예측 캐시 엔진을 제품에 추가했다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip02", "text": "관리자 화면의 버튼 색상과 간격을 조정했다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip03", "text": "기존 서버 내부 추천 기술을 외부 SDK에 공개한다.", "review_record": "trade_secret", "prior_premise": "서버 내부에서만 동작하고 외부에 구현이 노출되지 않는다"},
+      {"id": "ip04", "text": "이미 검토 완료한 압축 알고리즘의 설명 문구를 수정했다.", "review_record": "patent_reviewed", "prior_premise": ""},
+      {"id": "ip05", "text": "고객 단말용 라이브러리에 내부 최적화 로직을 포함한다.", "review_record": "trade_secret", "prior_premise": "서버 내부에서만 동작하고 외부에 구현이 노출되지 않는다"},
+      {"id": "ip06", "text": "새 분석 모델을 출시 버전에 탑재한다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip07", "text": "새 결제 아이콘을 추가한다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip08", "text": "검토 완료된 검색 기능의 오류 메시지를 고쳤다.", "review_record": "patent_reviewed", "prior_premise": ""},
+      {"id": "ip09", "text": "성능 향상을 위해 요청 순서를 바꿨다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip10", "text": "신규 센서 융합 알고리즘을 논문 초록에 공개한다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip11", "text": "내부 운영 대시보드의 표 정렬을 수정했다.", "review_record": "none", "prior_premise": ""},
+      {"id": "ip12", "text": "기존 영업비밀 처리 로직을 오픈소스 저장소에 게시한다.", "review_record": "trade_secret", "prior_premise": "외부에 코드를 공개하지 않는다"}
+    ],
+    "gold": {
+      "review_required_ids": ["ip01", "ip03", "ip05", "ip06", "ip10", "ip12"],
+      "premise_change_ids": ["ip03", "ip05", "ip12"]
+    }
+  }
+}
