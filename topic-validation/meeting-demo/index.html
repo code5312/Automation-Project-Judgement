@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>U3 사람판단 실험실</title>
+<style>
+:root{font-family:system-ui,"Malgun Gothic",sans-serif;color:#18304e;background:#f3f6fa}*{box-sizing:border-box}body{margin:0}
+header{background:#12365e;color:#fff;padding:28px max(20px,calc((100vw - 1160px)/2))}h1{margin:5px 0}header p{max-width:850px;color:#dce8f6;line-height:1.6}
+main{max-width:1160px;margin:auto;padding:20px}nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px}
+button,select{font:inherit;border:1px solid #b9cbdc;border-radius:8px;background:#fff;padding:9px 12px;color:#18304e;cursor:pointer}
+button:hover{border-color:#236eb4}.active,.primary{background:#1764ae;color:white;border-color:#1764ae}
+.layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(270px,.8fr);gap:18px}.panel{background:white;border:1px solid #dce5ee;border-radius:12px;padding:18px;margin-bottom:16px;box-shadow:0 2px 10px #162a4308}
+h2{margin:2px 0 9px}h3{margin:0 0 8px}p{line-height:1.55}.muted{color:#5c7088}.small{font-size:.88rem}.card{border:1px solid #d6e1ed;border-radius:8px;padding:12px;margin:9px 0}.focus{border-left:5px solid #2273be}
+.pill{display:inline-block;background:#e8f2fc;color:#245b91;font-size:.78rem;padding:4px 8px;border-radius:20px;margin:0 4px 4px 0}.warning{background:#fff1d5;color:#785400}
+.output{background:#edf5fc;border-left:4px solid #1764ae;border-radius:4px;padding:13px;margin:13px 0;line-height:1.6}.danger{background:#fff7e8;border-color:#c7781d}
+.controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:12px 0}.steps{display:flex;flex-wrap:wrap;gap:5px}.steps span{background:#eaf0f7;border-radius:6px;padding:6px;font-size:.82rem}
+details{margin:8px 0}summary{cursor:pointer}.footer{font-size:.86rem;color:#607188;margin-top:24px}
+@media(max-width:780px){.layout{grid-template-columns:1fr}header{padding:24px 20px}main{padding:14px}}
+</style></head><body>
+<header><div class="small">U3 · 9/30 회의 체험용</div><h1>사람판단 실험실</h1><p>후보를 골라 작은 사건을 처리해 보세요. 시스템 제안을 사람이 확인하면 다음 상태가 달라집니다. B-1·B-2·B-3·D는 가상 업무 사례이며 특허 탭에는 이 채팅에서 수행한 KIPRIS 탐색 결과를 사용합니다.</p></header>
+<main><nav id="tabs" aria-label="후보 선택"></nav><div class="layout"><section id="work"></section><aside id="side"></aside></div><div class="footer">회의용 시연입니다. 선택 내용은 저장·전송되지 않습니다. API 키와 원본 특허 데이터는 이 페이지에 없습니다.</div></main>
+<script src="data.js"></script><script>
+const data=window.DEMO_DATA, $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const tabs=[['b1','B-1 반복 예외'],['b2','B-2 충돌 검사'],['b3','B-3 변경 완료'],['d','D IP 사건'],['patent','특허 검색 보조']];
+let current='b1',changeCase=0,ipCase=0,patentCase=0;
+function side(who,evidence,question){return '<div class="panel"><h3>사람의 결정</h3><p>'+who+'</p><div class="steps"><span>사건</span><span>시스템 제안</span><span>사람 결정</span><span>후속 처리</span></div></div><div class="panel"><h3>현재 증거</h3><p>'+evidence+'</p></div><div class="panel"><h3>회의 질문</h3><p>'+question+'</p></div>'}
+function set(html,context){$('#work').innerHTML=html;$('#side').innerHTML=context}
+function render(){ $('#tabs').innerHTML=tabs.map(([id,title])=>'<button class="'+(current===id?'active':'')+'" data-id="'+id+'">'+title+'</button>').join('');
+ document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{current=b.dataset.id;render()});({b1,b2,b3,d,patent})[current]();}
+function b1(){set('<div class="panel"><span class="pill warning">가상 사례</span><h2>같은 예외를 다음에는 어떻게 처리할까?</h2><p>쿠폰 자동화의 지난 처리 이력입니다.</p>'+
+ ['등급 누락 → CRM 등급 재조회 후 재발급 → 성공','등급 동기화 지연 → CRM 등급 재조회 후 재발급 → 성공','수신 동의 철회 → 재발급하지 않음 → 정상 종료'].map((x,i)=>'<div class="card"><strong>E-10'+(i+1)+'</strong><p>'+x+'</p></div>').join('')+
+ '<div class="output">시스템 제안: 등급 누락·동기화 지연은 재조회 후 재발급. 수신 동의 철회는 자동 처리에서 제외.</div><div class="controls"><button class="primary" id="b1yes">규칙 승인</button><button id="b1hold">추가 사례 요청</button></div><div id="result"></div></div>',
+ side('운영자가 규칙을 재사용할 범위와 자동 적용 여부를 승인합니다.','실제 예외·해결·성공 이력을 확보하지 못했습니다. 사례와 제안은 시연용입니다.','어느 한 업무의 예외·해결·결과 기록을 구할 수 있을까요?'));
+ $('#b1yes').onclick=()=>$('#result').innerHTML='<div class="output">다음 등급 지연 사건 → 재조회·재발급 후보. 수신 동의 철회는 담당자에게 전달합니다. 실제 자동 적용에는 정책 검사와 승인 기록이 필요합니다.</div>';
+ $('#b1hold').onclick=()=>$('#result').innerHTML='<div class="output danger">규칙 보류 → 다음 사건도 담당자에게 전달하고 성공 조건의 추가 이력을 모읍니다.</div>';}
+function b2(){set('<div class="panel"><span class="pill warning">가상 n8n 계약</span><h2>새 자동화를 배포해도 될까?</h2><div class="card">기존: 신규 문의 → 고객 상태를 ‘관심 고객’으로 변경 · 환영 메일 발송</div><div class="controls"><select id="flow"><option value="status">CS: 같은 신규 문의에서 상태를 ‘처리 완료’로 변경</option><option value="mail">마케팅: 같은 신규 문의에서 환영 메일 발송</option><option value="memo">상담 종료 시 CRM 메모 기록</option></select><button class="primary" id="scan">충돌 후보 검사</button></div><div id="result"></div></div>',
+ side('자동화 운영자가 충돌 후보를 수정·시험·승인합니다.','실제 n8n 정의와 읽기·쓰기 계약은 수집하지 않았습니다. 계약을 이미 안다는 가정의 시연입니다.','실제 자동화에서 읽기·쓰기 범위와 실행 순서를 추출할 수 있을까요?'));
+ $('#scan').onclick=()=>{let v=$('#flow').value, msg=v==='status'?'같은 사건에서 customer.status에 다른 값을 쓰는 충돌 후보':v==='mail'?'같은 사건에서 환영 메일이 중복 발송될 후보':'현재 계약에서 직접 충돌 후보 없음';
+ $('#result').innerHTML='<div class="output '+(v==='memo'?'':'danger')+'"><strong>'+msg+'</strong><div class="controls"><button id="fix">수정·격리 시험 요청</button><button id="approve">검토 기록 남기기</button></div><div id="next"></div></div>';
+ $('#fix').onclick=()=>$('#next').textContent='실행 조건을 분리하고 격리 시험으로 보냅니다. 실제 n8n 실행은 하지 않습니다.';
+ $('#approve').onclick=()=>$('#next').textContent='사람의 승인 이유를 기록할 단계입니다. 회의용 화면에서는 서버 저장을 하지 않습니다.';};}
+function b3(){let c=data.cases[changeCase];set('<div class="panel"><span class="pill warning">팀 제작 가상 사례</span><h2>변경이 정말 끝났을까?</h2><div class="controls"><select id="cc">'+data.cases.map((x,i)=>'<option value="'+i+'" '+(i===changeCase?'selected':'')+'>'+esc(x.name)+'</option>').join('')+'</select></div><div class="output">'+esc(c.change)+'</div><p class="muted small">파란 테두리는 기존 BM25 추천입니다. 관련 여부와 수정 필요 여부를 나눠 선택하세요.</p>'+
+ c.artifacts.map((x,i)=>'<div class="card '+(x.suggested?'focus':'')+'"><strong>'+esc(x.id)+' <span class="pill">'+esc(x.kind)+'</span>'+(x.suggested?'<span class="pill">시스템 후보</span>':'')+'</strong><p>'+esc(x.before)+'</p><details><summary>변경 후 내용</summary><p>'+esc(x.after)+'</p></details><select class="decision" data-i="'+i+'"><option value="unknown">판단 선택</option><option value="unrelated">관련 없음</option><option value="done">관련 있음 · 수정 완료</option><option value="stale">관련 있음 · 수정 필요</option><option value="related">관련 있음 · 수정 불필요</option></select></div>').join('')+
+ '<button class="primary" id="check">완료 상태 확인</button><div id="result"></div></div>',
+ side('운영자가 영향 범위를 확정하고 수정 후 완료를 확인합니다.','두 사례는 팀 제작 자료입니다. 공개 LibEST 자료는 영향 검색 일부만 검증했습니다.','관련 자료와 직접 수정해야 하는 자료를 어떻게 구분할까요?'));
+ $('#cc').onchange=e=>{changeCase=Number(e.target.value);render()};
+ $('#check').onclick=()=>{let n={unknown:0,unrelated:0,done:0,stale:0,related:0},stale=[];document.querySelectorAll('.decision').forEach(s=>{n[s.value]++;if(s.value==='stale')stale.push(c.artifacts[Number(s.dataset.i)].id)});
+ $('#result').innerHTML='<div class="output '+(n.stale||n.unknown?'danger':'')+'"><strong>'+(n.stale?'완료 보류':n.unknown?'판단 대기':'사람 판단상 완료 후보')+'</strong><br>수정 필요 '+n.stale+' · 수정 완료 '+n.done+' · 관련 있지만 수정 불필요 '+n.related+' · 관련 없음 '+n.unrelated+' · 미판단 '+n.unknown+(stale.length?'<br>재작업: '+esc(stale.join(', ')):'')+'<br><span class="small">사람 선택을 집계한 결과이며 실제 반영 여부의 자동 검증은 아닙니다.</span></div>';};}
+function d(){let c=data.cases[ipCase];set('<div class="panel"><span class="pill warning">팀 제작 가상 사례</span><h2>어떤 사건을 IP 담당자에게 보낼까?</h2><div class="controls"><select id="ic">'+data.cases.map((x,i)=>'<option value="'+i+'" '+(i===ipCase?'selected':'')+'>'+esc(x.release)+'</option>').join('')+'</select></div><p>개발·공개 변경을 보고 검토 요청, 불필요, 정보 부족을 구별하세요.</p>'+
+ c.events.map((x,i)=>'<div class="card '+(x.suggested?'focus':'')+'"><strong>'+esc(x.id)+(x.suggested?' <span class="pill">시스템 후보</span>':'')+'</strong><p>'+esc(x.text)+'</p><p class="muted small">기존 기록: '+esc(x.record)+(x.premise?' · 전제: '+esc(x.premise):'')+'</p><select class="decision" data-i="'+i+'"><option value="unknown">판단 선택</option><option value="review">검토 요청</option><option value="skip">추가 검토 불필요</option><option value="hold">정보 부족 · 보류</option></select></div>').join('')+
+ '<button class="primary" id="check">검토 목록 만들기</button><div id="result"></div></div>',
+ side('IP 담당자가 검토 요청을 받고 이유·전제를 기록합니다. 이후 전제가 바뀌면 재검토합니다.','규칙은 가상 사례의 표현에 민감하며, 사용자 검토에서도 애매한 항목이 있었습니다.','실제 검토 누락 사건과 이전 판단 기록을 확보할 수 있을까요?'));
+ $('#ic').onchange=e=>{ipCase=Number(e.target.value);render()};
+ $('#check').onclick=()=>{let r=[],h=[];document.querySelectorAll('.decision').forEach(s=>{let x=c.events[Number(s.dataset.i)];if(s.value==='review')r.push(x.id);if(s.value==='hold')h.push(x.id)});
+ $('#result').innerHTML='<div class="output">검토 요청 '+r.length+'건: '+esc(r.join(', ')||'없음')+'<br>정보 부족 '+h.length+'건: '+esc(h.join(', ')||'없음')+'<br><span class="small">특허성·공개 가능 여부의 판단 결과는 아닙니다.</span></div>';};}
+function patent(){let c=data.patent[patentCase];set('<div class="panel"><span class="pill">실제 KIPRIS 탐색 결과</span><h2>어떤 특허 문헌을 먼저 볼까?</h2><p>이 채팅에서 수행한 검색 PoC의 저장된 순위를 사용합니다. 새 API 호출은 하지 않습니다.</p><div class="controls"><select id="pc">'+data.patent.map((x,i)=>'<option value="'+i+'" '+(i===patentCase?'selected':'')+'>'+esc(x.query)+'</option>').join('')+'</select></div><div class="output">검토 대상 출원 '+esc(c.application)+'<br><strong>'+esc(c.query)+'</strong></div><p class="muted small">'+esc(c.note)+'</p>'+
+ c.ranked.map((id,i)=>'<div class="card"><strong>'+(patentCase===0?i+1:'54')+'위 · 출원번호 '+esc(id)+'</strong><select class="decision"><option value="unknown">아직 안 봄</option><option value="review">원문 추가 검토</option><option value="skip">이번 검토에서 제외</option><option value="hold">판단 보류</option></select></div>').join('')+
+ '<button class="primary" id="check">검토 목록 정리</button><div id="result"></div></div>',
+ side('사람이 검색된 공보를 먼저 볼 순서를 정하고 근거를 검토합니다. D 탭은 검색을 시작해야 할 사건 자체를 찾습니다.','탐색 21건의 순위 평가는 정답 문헌을 후보집에 넣었습니다. 정답 주입 없이 후보를 모은 별도 30건에서는 인용 proxy 77쌍 중 15쌍만 후보에 있었습니다.','특허 문헌 우선 검토와 IP 검토 사건 탐지 중 무엇을 먼저 좁힐까요?'));
+ $('#pc').onchange=e=>{patentCase=Number(e.target.value);render()};
+ $('#check').onclick=()=>{let v=[...document.querySelectorAll('.decision')].map(s=>s.value);$('#result').innerHTML='<div class="output">원문 추가 검토 '+v.filter(x=>x==='review').length+' · 제외 '+v.filter(x=>x==='skip').length+' · 보류 '+v.filter(x=>x==='hold').length+' · 미판단 '+v.filter(x=>x==='unknown').length+'<br><span class="small">번호만으로 관련성을 판단하기 어렵습니다. 실제 서비스에는 초록·청구항·근거 문장이 필요합니다.</span></div>';};}
+render();
+</script></body></html>
