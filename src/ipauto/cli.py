@@ -98,7 +98,18 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--debug", action="store_true", help="Print HTTP/XML diagnostics; access key is redacted")
     search.set_defaults(func=_run_search)
 
+    migrate = subparsers.add_parser(
+        "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
+    )
+    migrate.set_defaults(func=_run_migrate_judgments)
+
     return parser
+
+
+def _run_migrate_judgments(_args: argparse.Namespace) -> int:
+    from ipauto.judgments.migrate_json import main as migrate_main
+
+    return migrate_main()
 
 
 def main(argv: list[str] | None = None) -> int:

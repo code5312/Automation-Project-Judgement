@@ -1,0 +1,26 @@
+[
+  {
+    "applicationNumber": "SAMPLE-0000001",
+    "inventionTitle": "샘플 배터리 열관리 시스템",
+    "decision": "관련 있음",
+    "decisionReason": "샘플 테스트용 이유: 배터리 냉각 개념이 확인됨",
+    "decisionTime": "2026-01-01T00:00:00+09:00",
+    "registerStatusAtDecision": "공개(샘플)",
+    "applicantNameAtDecision": "샘플대학교 산학협력단",
+    "ipcNumberAtDecision": "H01M 10/613|H01M 10/625",
+    "relevanceScoreAtDecision": 82.0,
+    "reviewPriorityAtDecision": "검토 우선순위 높음"
+  },
+  {
+    "applicationNumber": "SAMPLE-0000002",
+    "inventionTitle": "샘플 무관 반도체 장치",
+    "decision": "관련 없음",
+    "decisionReason": "샘플 테스트용 이유: 배터리·냉각과 무관",
+    "decisionTime": "2026-01-02T00:00:00+09:00",
+    "registerStatusAtDecision": "등록(샘플)",
+    "applicantNameAtDecision": "샘플 주식회사",
+    "ipcNumberAtDecision": "G06F 1/20",
+    "relevanceScoreAtDecision": 5.0,
+    "reviewPriorityAtDecision": "검토 우선순위 낮음"
+  }
+]
