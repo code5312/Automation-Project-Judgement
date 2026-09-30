@@ -33,14 +33,14 @@ flowchart LR
 **목표**: 프로토타입을 누구나 깨끗한 환경에서 실행하고 저장할 수 있는 상태로 만든다.
 **선행 조건**: 없음
 
-- [ ] git 초기화, 백업 파일·`__pycache__`·`data/` 정리, `.gitignore` 작성
-- [ ] Python 버전 고정(3.12 이상) 또는 f-string 역슬래시 수정 (`app.py:103`, `main.py:437`)
-- [ ] `requirements.txt` 버전 고정, `defusedxml` 추가
-- [ ] 소스의 `\uXXXX` 문자열을 실제 한글로 변환
-- [ ] `collect_kipris_data`가 HTTP 상태·`successYN`·`resultMsg`를 검사해 오류를 화면에 표시
-- [ ] 접근키 환경 변수 전용, 로그·오류 메시지에서 키 마스킹(URL 인코딩 형태 포함)
-- [ ] `save_judgment`에서 사유 공백 저장 차단, 저장 후 폼 초기화
-- [ ] README 갱신 (실행 방법, 환경 변수, 알려진 한계)
+- [x] git 초기화, 백업 파일·`__pycache__`·`data/` 정리, `.gitignore` 작성
+- [x] Python 버전 고정(3.12 이상) 또는 f-string 역슬래시 수정 (`app.py:103`, `main.py:437`)
+- [x] `requirements.txt` 버전 고정, `defusedxml` 추가 (`pyproject.toml`로 대체)
+- [x] 소스의 `\uXXXX` 문자열을 실제 한글로 변환
+- [x] `collect_kipris_data`가 HTTP 상태·`successYN`·`resultMsg`를 검사해 오류를 화면에 표시
+- [x] 접근키 환경 변수 전용, 로그·오류 메시지에서 키 마스킹(URL 인코딩 형태 포함)
+- [x] `save_judgment`에서 사유 공백 저장 차단, 저장 후 폼 초기화
+- [x] README 갱신 (실행 방법, 환경 변수, 알려진 한계)
 
 **완료 기준**: 새 환경에서 설치 → 실행 → 검색 → 판단 저장이 오류 없이 된다.
 
@@ -49,14 +49,14 @@ flowchart LR
 **목표**: JSON 로그를 SQLite로 옮기고, 판단 기록에 키·사유·전제를 붙인다.
 **선행 조건**: 단계 0 완료, 대상 IP 범위 결정
 
-- [ ] SQLite 스키마 작성: Event, IPAsset, Link, Judgment, Premise, Task, ReviewRequest
-- [ ] Judgment 저장 키 `(출원번호, 검토 기술)` 적용, append-only 저장 함수
-- [ ] 결정값 열거형(신규 출원 검토 / 기존 IP 보강 검토 / 유지 / 정리 검토 / 타사 특허 확인 필요)
-- [ ] 게이트 B 화면: 결정·사유(필수)·전제(1개 이상)·담당자·기한 입력과 검증
-- [ ] `judgments.json` → Judgment 이관 스크립트 (없는 필드는 "이전 데이터"로 표시)
-- [ ] `compare_with_latest`를 집합 비교로 교체, 필드 접근을 상수 이름으로 교체
-- [ ] 중복 저장 방지 (키 + 시각)
-- [ ] 저장·이관 단위 테스트
+- [x] SQLite 스키마 작성: Event, IPAsset, Link, Judgment, Premise, Task, ReviewRequest
+- [x] Judgment 저장 키 `(출원번호, 검토 기술)` 적용, append-only 저장 함수
+- [x] 결정값 열거형(신규 출원 검토 / 기존 IP 보강 검토 / 유지 / 정리 검토 / 타사 특허 확인 필요)
+- [x] 게이트 B 화면: 결정·사유(필수)·전제(1개 이상)·담당자·기한 입력과 검증
+- [x] `judgments.json` → Judgment 이관 스크립트 (없는 필드는 "이전 데이터"로 표시)
+- [x] `compare_with_latest`를 집합 비교로 교체, 필드 접근을 상수 이름으로 교체
+- [x] 중복 저장 방지 (키 + 내용 동일 여부로 판정; 시각 기준 아님 — 재판단은 내용이 다르면 허용해야 하므로)
+- [x] 저장·이관 단위 테스트
 
 **완료 기준**: 기존 판단이 손실 없이 이관되고, 사유·전제가 비면 저장되지 않는다.
 
