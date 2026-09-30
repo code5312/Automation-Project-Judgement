@@ -1,28 +1,33 @@
 """Streamlit UI for the human-centered KIPRIS patent review MVP.
 
-Search screen + 게이트 B 저장 폼 (docs/DESIGN.md IP 조치 결정). The full
-게이트 B 결정 열거형/전제/담당자·기한 fields and the SQLite-backed store are
-phase 1 work; this phase keeps the JSON-backed relevance judgment from the
-prototype, translated to real Korean and with a blank-reason guard.
+Search screen + 게이트 B 저장 폼 (docs/DESIGN.md IP 조치 결정), backed by the
+SQLite ledger (docs/PIPELINE.md 단계 1). Judgment storage, validation, and
+history comparison live in ``ipauto.judgments``/``ipauto.db``; this module is
+presentation only.
 """
 
 from __future__ import annotations
+
+import datetime as dt
 
 import streamlit as st
 
 from ipauto.config import get_kipris_access_key, mask_secret
 from ipauto.connectors.kipris import KiprisError, fetch_page
-from ipauto.judgments.compare import compare_with_latest
+from ipauto.db.connection import connect, init_db
+from ipauto.db.repositories import DECISION_CHOICES
+from ipauto.judgments.compare import compare_with_premises
 from ipauto.judgments.service import (
     APPLICANT_FIELD,
     APPLICATION_FIELD,
     IPC_FIELD,
-    REVIEW_CHOICES,
     STATUS_FIELD,
     TITLE_FIELD,
-    JudgmentStoreError,
-    load_judgments,
-    save_judgment,
+    DuplicateJudgmentError,
+    JudgmentValidationError,
+    history_for_application,
+    premises_for_judgment,
+    save_gate_b_judgment,
 )
 from ipauto.scoring.bands import PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_MEDIUM
 from ipauto.scoring.keywords import (
@@ -37,6 +42,14 @@ from ipauto.scoring.keywords import (
 )
 
 SEARCH_COUNT = 20
+PREMISE_SLOT_COUNT = 3
+
+
+@st.cache_resource
+def _get_connection():
+    conn = connect()
+    init_db(conn)
+    return conn
 
 
 def _priority_badge(priority: str) -> str:
@@ -48,14 +61,20 @@ def _priority_badge(priority: str) -> str:
     return f"{colors.get(priority, '⚪')} {priority}"
 
 
-def _display_snapshot(value: str) -> str:
-    return value if value else "(저장된 값 없음)"
+def _default_premise_slots(record: dict[str, str | float]) -> list[tuple[str, str, str]]:
+    """Pre-fill premise inputs from the current record; the user confirms or edits them."""
+    return [
+        ("KIPRIS 재조회", STATUS_FIELD, str(record.get(STATUS_FIELD) or "")),
+        ("KIPRIS 재조회", APPLICANT_FIELD, str(record.get(APPLICANT_FIELD) or "")),
+        ("KIPRIS 재조회", IPC_FIELD, str(record.get(IPC_FIELD) or "")),
+    ]
 
 
 def _render_record_card(
+    conn,
     rank: int,
     record: dict[str, str | float],
-    histories: dict[str, list[dict[str, str | float]]],
+    review_technology: str,
 ) -> None:
     title = record.get(TITLE_FIELD) or "명칭 없음"
     application_number = str(record.get(APPLICATION_FIELD) or "")
@@ -82,56 +101,71 @@ def _render_record_card(
             st.write(f"**score_reason:** {record.get(REASON_FIELD) or '-'}")
             st.write(f"**초록:** {record.get('초록') or '-'}")
 
-        history = histories.get(application_number, [])
+        history = history_for_application(conn, application_number) if application_number else []
         if history:
             st.caption("이 특허는 이전에 검토한 기록이 있습니다.")
-            differences = compare_with_latest(record, history)
+            latest = history[0]
+            differences = compare_with_premises(record, premises_for_judgment(conn, latest["id"]))
             if differences:
                 st.warning("⚠ 재검토 필요")
-                for display_name, previous, current in differences:
-                    st.write(f"**{display_name}:** {_display_snapshot(previous)} → {_display_snapshot(current)}")
+                for check_key, previous, current in differences:
+                    st.write(f"**{check_key}:** {previous or '(저장된 값 없음)'} → {current or '(저장된 값 없음)'}")
             else:
                 st.success("현재 확인된 주요 특허정보 변화 없음")
             with st.expander(f"이전 판단 기록 {len(history)}건 확인"):
-                for previous in sorted(history, key=lambda entry: str(entry.get("decisionTime", "")), reverse=True):
-                    st.markdown(f"**{previous.get('decision', '-')}** · {previous.get('decisionTime', '-')}")
-                    st.write(f"판단 이유: {previous.get('decisionReason') or '-'}")
-                    st.write(
-                        f"판단 당시 등록상태: {previous.get('registerStatusAtDecision') or '-'}  |  "
-                        f"출원인: {previous.get('applicantNameAtDecision') or '-'}  |  "
-                        f"IPC: {previous.get('ipcNumberAtDecision') or '-'}"
-                    )
+                for previous in history:
+                    st.markdown(f"**{previous['decision']}** · {previous['created_at']}")
+                    st.write(f"판단 이유: {previous['reason']}")
+                    st.write(f"담당자: {previous['assignee']}  |  재검토 기한: {previous['review_deadline']}")
+                    if previous["migrated_from_json"]:
+                        st.caption(f"마이그레이션된 이전 기록입니다. {previous['legacy_note'] or ''}")
 
-        st.markdown("#### 사람 판단 및 이유 기록")
+        st.markdown("#### 사람 판단 및 이유 기록 (게이트 B)")
         st.caption("최종 판단은 사용자가 직접 수행합니다. 본 도구의 추천은 법률 자문이 아닙니다.")
-        review_key = f"human_review_{application_number or rank}"
-        reason_key = f"human_reason_{application_number or rank}"
-        with st.form(f"judgment_form_{application_number or rank}"):
-            decision = st.radio(
-                "판단",
-                options=REVIEW_CHOICES,
-                index=None,
-                horizontal=True,
-                key=review_key,
-            )
-            decision_reason = st.text_area(
-                "판단 이유",
-                key=reason_key,
-                placeholder="사람이 판단한 근거를 직접 작성해주세요.",
-            )
+        form_key_suffix = application_number or str(rank)
+        with st.form(f"judgment_form_{form_key_suffix}"):
+            decision = st.selectbox("결정", options=DECISION_CHOICES, index=None, placeholder="결정을 선택하세요")
+            reason = st.text_area("판단 이유", placeholder="사람이 판단한 근거를 직접 작성해주세요.")
+
+            st.markdown("**전제** (최소 1개, 기대값이 비어 있는 줄은 무시됩니다)")
+            premise_inputs = []
+            for i, (default_source, default_key, default_value) in enumerate(_default_premise_slots(record), start=1):
+                cols = st.columns([1.2, 1, 2])
+                source = cols[0].text_input(
+                    f"전제 {i} 출처", value=default_source, key=f"premise_source_{form_key_suffix}_{i}"
+                )
+                check_key = cols[1].text_input(
+                    f"전제 {i} 확인 키", value=default_key, key=f"premise_key_{form_key_suffix}_{i}"
+                )
+                expected_value = cols[2].text_input(
+                    f"전제 {i} 기대값", value=default_value, key=f"premise_value_{form_key_suffix}_{i}"
+                )
+                premise_inputs.append((source, check_key, expected_value))
+
+            assignee_col, deadline_col = st.columns(2)
+            assignee = assignee_col.text_input("담당자")
+            review_deadline = deadline_col.date_input("재검토 기한", value=dt.date.today() + dt.timedelta(days=90))
             save_clicked = st.form_submit_button("판단 저장")
+
         if save_clicked:
-            if not decision:
-                st.error("판단을 선택한 후 저장해주세요.")
-            elif not decision_reason.strip():
-                st.error("판단 이유를 입력한 후 저장해주세요.")
-            else:
-                try:
-                    saved = save_judgment(record, decision, decision_reason, SCORE_FIELD, PRIORITY_FIELD)
-                    histories.setdefault(application_number, []).append(saved)
-                    st.success("판단 이력을 data/judgments.json에 추가 저장했습니다.")
-                except (OSError, ValueError, JudgmentStoreError) as exc:
-                    st.error(f"판단 기록을 저장하지 못했습니다: {exc}")
+            try:
+                save_gate_b_judgment(
+                    conn,
+                    application_number=application_number,
+                    review_technology=review_technology,
+                    decision=decision or "",
+                    reason=reason,
+                    premises=premise_inputs,
+                    assignee=assignee,
+                    review_deadline=review_deadline.isoformat(),
+                    analysis_mode=str(record.get(ANALYSIS_MODE_FIELD) or ""),
+                    relevance_score=float(record.get(SCORE_FIELD) or 0),
+                    review_priority=str(record.get(PRIORITY_FIELD) or ""),
+                )
+                st.success("판단 이력을 저장했습니다.")
+                st.rerun()
+            except (JudgmentValidationError, DuplicateJudgmentError) as exc:
+                st.error(str(exc))
 
 
 def main() -> None:
@@ -140,6 +174,8 @@ def main() -> None:
         page_icon="\U0001f50e",
         layout="wide",
     )
+    conn = _get_connection()
+
     st.title("사람 판단 중심 특허 검토 업무 자동화")
     st.write(
         "KIPRIS Plus의 실제 특허 데이터를 기반으로, 검색된 특허 중 사용자가 먼저 검토할 후보의 우선순위를 제공합니다."
@@ -199,10 +235,9 @@ def main() -> None:
     high_count = sum(row[PRIORITY_FIELD] == PRIORITY_HIGH for row in ranked_patents)
     medium_count = sum(row[PRIORITY_FIELD] == PRIORITY_MEDIUM for row in ranked_patents)
     low_count = sum(row[PRIORITY_FIELD] == PRIORITY_LOW for row in ranked_patents)
+    review_technology = st.session_state["analysis_inputs"][1]
     st.subheader("분석 결과")
-    st.caption(
-        f"KIPRIS 검색: {st.session_state['analysis_inputs'][0]}  |  평가 기술: {st.session_state['analysis_inputs'][1]}"
-    )
+    st.caption(f"KIPRIS 검색: {st.session_state['analysis_inputs'][0]}  |  평가 기술: {review_technology}")
     summary_cols = st.columns(4)
     summary_cols[0].metric("검색된 특허", f"{len(ranked_patents)}건")
     summary_cols[1].metric("높음", f"{high_count}건")
@@ -211,19 +246,8 @@ def main() -> None:
     if ranked_patents and ranked_patents[0].get(ANALYSIS_MODE_FIELD) == MODE_GENERIC_KEYWORD:
         st.info(GENERIC_FALLBACK_MESSAGE)
 
-    try:
-        history_entries = load_judgments()
-    except JudgmentStoreError as exc:
-        st.error(f"이전 판단 기록을 불러오지 못했습니다: {exc}")
-        history_entries = []
-    histories: dict[str, list[dict[str, str | float]]] = {}
-    for entry in history_entries:
-        application_number = str(entry.get("applicationNumber") or "")
-        if application_number:
-            histories.setdefault(application_number, []).append(entry)
-
     for rank, record in enumerate(ranked_patents, start=1):
-        _render_record_card(rank, record, histories)
+        _render_record_card(conn, rank, record, review_technology)
 
 
 if __name__ == "__main__":
