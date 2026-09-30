@@ -739,15 +739,184 @@
     "limit": "Retrospective one-case diagnostic, query meaning needs human validation. More candidates may be irrelevant."
   },
   "n8n_probe": {
-    "run_at": "2026-09-30T08:11:58.709105+00:00",
+    "run_at": "2026-09-30T08:34:14.019533+00:00",
     "expected_version": "2.41.3",
     "kind": "real n8n HTTP Request nodes / synthetic CRM",
-    "runs": [],
+    "runs": [
+      {
+        "separate_fields": false,
+        "order": [
+          "marketing",
+          "cs"
+        ],
+        "persisted_state": {
+          "status": "support_pending"
+        },
+        "expected_state": {
+          "status": "support_pending"
+        },
+        "http_trace": [
+          {
+            "method": "POST",
+            "path": "/reset",
+            "body": {}
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "status": "nurturing"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "status": "support_pending"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/state"
+          }
+        ],
+        "workflow_file": "shared-marketing-cs.json",
+        "execution_log": "shared-marketing-cs-execute.log"
+      },
+      {
+        "separate_fields": false,
+        "order": [
+          "cs",
+          "marketing"
+        ],
+        "persisted_state": {
+          "status": "nurturing"
+        },
+        "expected_state": {
+          "status": "nurturing"
+        },
+        "http_trace": [
+          {
+            "method": "POST",
+            "path": "/reset",
+            "body": {}
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "status": "support_pending"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "status": "nurturing"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/state"
+          }
+        ],
+        "workflow_file": "shared-cs-marketing.json",
+        "execution_log": "shared-cs-marketing-execute.log"
+      },
+      {
+        "separate_fields": true,
+        "order": [
+          "marketing",
+          "cs"
+        ],
+        "persisted_state": {
+          "status": "new",
+          "marketing_status": "nurturing",
+          "cs_status": "support_pending"
+        },
+        "expected_state": {
+          "status": "new",
+          "marketing_status": "nurturing",
+          "cs_status": "support_pending"
+        },
+        "http_trace": [
+          {
+            "method": "POST",
+            "path": "/reset",
+            "body": {}
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "marketing_status": "nurturing"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "cs_status": "support_pending"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/state"
+          }
+        ],
+        "workflow_file": "fixed-marketing-cs.json",
+        "execution_log": "fixed-marketing-cs-execute.log"
+      },
+      {
+        "separate_fields": true,
+        "order": [
+          "cs",
+          "marketing"
+        ],
+        "persisted_state": {
+          "status": "new",
+          "cs_status": "support_pending",
+          "marketing_status": "nurturing"
+        },
+        "expected_state": {
+          "status": "new",
+          "marketing_status": "nurturing",
+          "cs_status": "support_pending"
+        },
+        "http_trace": [
+          {
+            "method": "POST",
+            "path": "/reset",
+            "body": {}
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "cs_status": "support_pending"
+            }
+          },
+          {
+            "method": "POST",
+            "path": "/update",
+            "body": {
+              "marketing_status": "nurturing"
+            }
+          },
+          {
+            "method": "GET",
+            "path": "/state"
+          }
+        ],
+        "workflow_file": "fixed-cs-marketing.json",
+        "execution_log": "fixed-cs-marketing-execute.log"
+      }
+    ],
     "limit": "Sequential workflow ordering only; no concurrent scheduler or production CRM.",
+    "node_version": "v24.21.0",
+    "sqlite_dependency": "load verified",
     "runtime_version": "2.41.3",
-    "status": "failed",
-    "error_type": "TimeoutExpired",
-    "failure_reason": "Node 24 retry: workflow import CLI exceeded 120 seconds; no workflow run verified."
+    "status": "verified"
   },
   "public_cases": {
     "run_at": "2026-09-29T23:47:44.829695+00:00",
@@ -837,6 +1006,120 @@
       "b2": "Shared storage conflict exists in a public automation implementation. This is different from CRM business rule conflicts and does not replace executing real workflows.",
       "b3": "Public PRs supply exact versions and changed code/test paths. Changed file list is an observed change set, not the complete set of files that ought to change.",
       "d": "Public SDK changes do not contain private IP decision premises. No reviewed IP event labels obtained."
+    }
+  },
+  "data_access": {
+    "checked_at": "2026-09-30T08:39:40.714872+00:00",
+    "sources": {
+      "b1_software_proxy": {
+        "status": "acquired",
+        "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite",
+        "sample_count": 3,
+        "fields": [
+          "instance_id",
+          "problem_statement",
+          "patch",
+          "test_patch",
+          "base_commit",
+          "FAIL_TO_PASS",
+          "PASS_TO_PASS"
+        ],
+        "ids": [
+          "astropy__astropy-12907",
+          "astropy__astropy-14182",
+          "astropy__astropy-14365"
+        ],
+        "test_execution": "not performed",
+        "usable_for": "Failure/repair/test-record schema and software issue retrieval proxy",
+        "missing": "Order input, operator correction reason, business outcome labels"
+      },
+      "b2_public_definition": {
+        "status": "acquired",
+        "url": "https://raw.githubusercontent.com/n8n-io/self-hosted-ai-starter-kit/refs/heads/main/n8n/demo-data/workflows/srOnR8PAY3u4RSwb.json",
+        "nodes": 3,
+        "node_types": [
+          "@n8n/n8n-nodes-langchain.chainLlm",
+          "@n8n/n8n-nodes-langchain.chatTrigger",
+          "@n8n/n8n-nodes-langchain.lmChatOllama"
+        ],
+        "connection_sources": 2,
+        "credential_references": 1,
+        "usable_for": "Parse real workflow nodes, parameters and graph",
+        "missing": "Public execution history and business conflict ground truth; referenced services require separate credentials"
+      },
+      "b3_trace_dataset": {
+        "status": "acquired",
+        "url": "https://github.com/tobhey/finegrained-traceability/tree/197cf2f395e9e90636436f30d6383465cb9e9f63/datasets/LibEST",
+        "requirements": 52,
+        "code_files": 14,
+        "trace_rows": 47,
+        "usable_for": "Requirements-to-code retrieval using supplied links",
+        "missing": "Before/after policy change, complete expected change set and business completion labels",
+        "reuse": "Repository GPL-3.0; original dataset attribution separate; raw corpus stays local"
+      },
+      "d_public_license_record": {
+        "status": "acquired",
+        "url": "https://github.com/getsentry/self-hosted/blob/master/LICENSE.md",
+        "blob_sha": "a4c3a137d00388a2538e1e35820d4313b8774c30",
+        "header": "# Functional Source License, Version 1.1, Apache 2.0 Future License",
+        "has_patent_section": true,
+        "decision_publication": "https://blog.sentry.io/introducing-the-functional-source-license-freedom-without-free-riding/",
+        "usable_for": "Public license decision statement and exact current license artifact",
+        "missing": "Internal disclosure premises, reviewer decisions, IP-event ground truth",
+        "scope": "Self-hosted Sentry; do not apply this license to Python SDK or infer legal conclusions"
+      },
+      "patent_actual_fields": {
+        "status": "acquired",
+        "sample_files": 3,
+        "available_fields": [
+          "Abstract",
+          "Applicant",
+          "ApplicationDate",
+          "ApplicationNumber",
+          "DrawingPath",
+          "InternationalpatentclassificationNumber",
+          "InventionName",
+          "OpeningDate",
+          "OpeningNumber",
+          "PublicDate",
+          "RegistrationDate",
+          "RegistrationNumber",
+          "RegistrationStatus",
+          "SearchStartNumber",
+          "SerialNumber",
+          "ThumbnailPath",
+          "TotalSearchCount",
+          "resultCode",
+          "resultMsg"
+        ],
+        "source": "Existing authenticated KIPRIS successful response cache",
+        "usable_for": "Document IDs, public dates, title, abstract and classification retrieval; exact fields above",
+        "missing": "Human relevance/novelty/infringement labels; full-text availability must be checked by operation",
+        "access": "Existing approved API key; approval and call limits depend on service; do not publish key/raw cache"
+      }
+    },
+    "limit": "Public software evidence and controlled executions are not private company business records.",
+    "download_manifest": {
+      "swe-rows.json": {
+        "source_url": "https://datasets-server.huggingface.co/rows?dataset=princeton-nlp%2FSWE-bench_Lite&config=default&split=test&offset=0&length=3",
+        "sha256": "1b704a8d14dc14b70b9d8177361ad8efc3af8cc2dc5b2c5628261e3cf4b16f69",
+        "bytes": 18863
+      },
+      "public-workflow.json": {
+        "source_url": "https://raw.githubusercontent.com/n8n-io/self-hosted-ai-starter-kit/refs/heads/main/n8n/demo-data/workflows/srOnR8PAY3u4RSwb.json",
+        "sha256": "e4e3112000b61db5fed114b026b000912b90ff832f163c3e7cc0d839bb1b7bad",
+        "bytes": 1864
+      },
+      "license-meta.json": {
+        "source_url": "https://api.github.com/repos/getsentry/self-hosted/contents/LICENSE.md",
+        "sha256": "b5e529a9ac4313c250110413aa4c9a3ff02751f08b957906bff76976285e8042",
+        "bytes": 6024
+      },
+      "license.txt": {
+        "source_url": "https://raw.githubusercontent.com/getsentry/self-hosted/master/LICENSE.md",
+        "sha256": "62f6dbe95fbd0aeb98f3cc35b4637e31a3bf67194264a3d812165351153ef955",
+        "bytes": 3785
+      }
     }
   }
 }

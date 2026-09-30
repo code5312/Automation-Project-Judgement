@@ -16,5 +16,7 @@ if (ROOT/'output'/'n8n-probe.json').exists():
     report['n8n_probe']=json.loads((ROOT/'output'/'n8n-probe.json').read_text(encoding='utf-8'))
 if (ROOT/'output'/'public-cases.json').exists():
     report['public_cases']=json.loads((ROOT/'output'/'public-cases.json').read_text(encoding='utf-8'))
+if (ROOT/'output'/'data-access.json').exists():
+    report['data_access']=json.loads((ROOT/'output'/'data-access.json').read_text(encoding='utf-8'))
 target=ROOT/'meeting-demo'
 (target/'execution-evidence.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

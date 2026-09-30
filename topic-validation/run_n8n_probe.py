@@ -52,10 +52,15 @@ def main():
         env.update({'N8N_USER_FOLDER':str(output/'runtime'),'N8N_DIAGNOSTICS_ENABLED':'false','N8N_VERSION_NOTIFICATIONS_ENABLED':'false','N8N_TEMPLATES_ENABLED':'false','N8N_RUNNERS_ENABLED':'false','N8N_LOG_LEVEL':'error'})
         env.pop('KIPRIS_API_KEY',None);env.pop('KIPRIS_ACCESS_KEY',None)
         def command(args,name):
+            report['last_step']=name
             result=subprocess.run([node_binary,str(binary),*args],env=env,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=120)
             (output/(name+'.log')).write_text(result.stdout+'\n'+result.stderr,encoding='utf-8')
             if result.returncode:raise RuntimeError('n8n command failed; see local log')
         try:
+            report['node_version']=subprocess.run([node_binary,'--version'],capture_output=True,text=True,timeout=10,check=True).stdout.strip()
+            dependency=subprocess.run([node_binary,'-e',"require(require.resolve('sqlite3',{paths:[process.argv[1]]}))",str(binary.parent.parent)],capture_output=True,timeout=15)
+            if dependency.returncode:raise RuntimeError('SQLite native dependency unavailable')
+            report['sqlite_dependency']='load verified'
             version=subprocess.run([node_binary,str(binary),'--version'],env=env,capture_output=True,text=True,timeout=60)
             if version.returncode:raise RuntimeError('Cannot read runtime version')
             report['runtime_version']=version.stdout.strip()
@@ -85,12 +90,13 @@ def main():
                     assert requests[1]['body']==actions[1][3] and requests[2]['body']==actions[2][3]
                     report['runs'].append({'separate_fields':fixed,'order':order,'persisted_state':state,'expected_state':expected,'http_trace':list(requests),'workflow_file':path.name,'execution_log':key+'-execute.log'})
             report['status']='verified'
+            report.pop('last_step',None)
         except Exception as error:
             report.update({'status':'failed','error_type':type(error).__name__})
             if isinstance(error,subprocess.TimeoutExpired):
                 report['failure_reason']='CLI did not finish within its 120-second limit.'
-                partial=(error.stdout or b'')+(error.stderr or b'')
-                if isinstance(partial,bytes):partial=partial.decode('utf-8',errors='replace')
+                def decode(value):return value.decode('utf-8',errors='replace') if isinstance(value,bytes) else value or ''
+                partial=decode(error.stdout)+decode(error.stderr)
                 (output/'timeout.log').write_text(partial,encoding='utf-8')
         finally:
             server.shutdown();server.server_close();thread.join()

@@ -9,7 +9,7 @@
 | 후보 | 실제 수행 | 관찰 | 미검증 |
 | --- | --- | --- | --- |
 | B-1 | 루프백 HTTP 주문 API, SQLite 저장, 실패·사람 보정·재시도 | 매핑 누락 422, 보정 200, 반복 요청 DB 1건 유지, SKU 충돌 409. 채널·코드·용량 일치로 제한 | 현업 해결 이력 확보, 이력에서 규칙 자동 발견, 사람이 지정한 규칙의 일반화 |
-| B-2 | 두 자동화 클라이언트가 실제 고객 API를 수정하고 DB 결과 조회 | 순서를 바꾸면 마지막 상태가 달라짐. 목적별 필드 분리 후 결과 동일 | n8n 가져오기/실행, 병렬 실행 경쟁, 회사 업무 조건. Docker 데몬 미실행으로 n8n 실험은 수행하지 않음 |
+| B-2 | 통제 HTTP·SQLite 실행에 더해 실제 n8n 순차 HTTP 워크플로 4건 실행 | 순서를 바꾸면 마지막 상태가 달라짐. 목적별 필드 분리 후 결과 동일. 정확한 저장 상태·HTTP 요청 확인 | 병렬 실행 경쟁·회사 실행 이력·업무 조건은 미검증 |
 | B-3 | 임시 프로젝트의 Python 코드·Markdown 파일을 실제 변경, 경계값 함수 실행 | 상담 파일 미변경이면 완료 보류. 보정 후 29,999/30,000/50,000원 통과. VIP 파일 유지 | 사전 지정하지 않은 영향 범위 발견, 실제 저장소 변경 사례의 완료 판정 |
 | D | GitHub API로 공개 Sentry Python SDK 릴리스·버전 비교 조회 | 공개 시각·버전·변경 파일 확보 가능 | 기업의 과거 IP 판단·비공개 전제·정답. 변경 파일이 곧 IP 사건이라는 판정은 하지 않음 |
 | 특허 | 기존 키로 KIPRIS 공보 재조회, 캐시 검색 평가 재실행, 추가 검색 페이지 실험 | 문헌 조회 1건 성공. 기존 30질의 후보 포함 15/77 재현. 추가 3질의는 검색 범위를 500→1500으로 넓혀도 인용 회수 1/4로 동일 | 검색어·분류 변경 효과, 독립적 검색 품질, 원문 근거 추출의 충분성 |
@@ -44,14 +44,14 @@ python topic-validation/build_execution_evidence.py
 ## 다음 검증 관문
 
 - B-1: 실제/공개 이력에 실패 입력·해결 행동·성공 결과가 함께 있는지 조사. 없다면 통제 실행과 현업 수요 증거를 분리.
-- B-2: 실제 자동화 도구에서 워크플로를 실행하고 읽기/쓰기 조건·병렬성·재시험 기록 확인.
+- B-2: 실제 n8n 순차 실행 확인 후 회사 정의·실행 이력·업무 조건과 병렬성을 별도 검증.
 - B-3: 공개 저장소의 실제 변경 전후와 테스트를 고정해 영향 탐색·누락 판정을 시험. 이번 배송 프로젝트는 통제 자료.
 - D: 공개 변경 자료만으로 가능한 신호와 내부 판단 기록이 필요한 기능을 분리. IP 검토 정답은 도메인 담당자의 검토가 필요.
 - 특허: 페이지 수 확대보다 검색어 표현·분류 조건을 다음 독립 변수로 시험. 후보 포함률과 후보 내 순위를 분리.
 
 ## 출처
 
-- n8n 실행 재시도: https://docs.n8n.io/workflows/executions/all-executions/ — 과거 입력으로 현재 워크플로 재시험 흐름 참고. 이번 코드는 n8n 구현이 아님.
+- n8n 실행 재시도: https://docs.n8n.io/build/understand-workflows/understand-executions/view-all-executions.md — 과거 입력으로 현재 워크플로 재시험 흐름 참고. 초기 HTTP·SQLite 코드는 n8n 구현이 아니며, 후속 `run_n8n_probe.py`는 실제 n8n CLI·HTTP 노드를 사용함.
 - Shopify 무료배송 기준: https://help.shopify.com/en/manual/fulfillment/setup/shipping-rates/setting-up-shipping-rates — 최소 주문 금액 업무 참고. Shopify 연동을 수행하지 않음.
 - SDK 원문: https://github.com/getsentry/sentry-python/releases — 실제 조회한 버전 링크는 결과 JSON에 저장.
 - LibEST: https://github.com/tobhey/finegrained-traceability/tree/197cf2f395e9e90636436f30d6383465cb9e9f63/datasets/LibEST
