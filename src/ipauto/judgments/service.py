@@ -1,16 +1,25 @@
-"""Append-only local judgment history (data/judgments.json).
+"""Gate B judgment storage against SQLite (docs/DESIGN.md IP 조치 결정).
 
-This keeps the prototype's JSON storage for phase 0; phase 1 moves the same
-shape into a SQLite ``Judgment`` table. A blank reason is rejected here
-before it ever reaches disk, matching docs/PIPELINE.md 단계 0's
-"사유 공백 저장 차단" requirement.
+Validates before writing: reason non-blank, at least one premise, and
+assignee/review_deadline present. A re-judgment for the same
+(application_number, review_technology) key is chained via
+previous_judgment_id instead of overwriting anything; an identical
+resubmission for the same key is rejected as a duplicate.
 """
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
-from pathlib import Path
+import sqlite3
+
+from ipauto.db.repositories import (
+    DECISION_CHOICES,
+    JudgmentInput,
+    PremiseInput,
+    fetch_judgments_for_application,
+    fetch_latest_judgment,
+    fetch_premises_for_judgment,
+)
+from ipauto.db.repositories import save_judgment as _insert_judgment
 
 TITLE_FIELD = "발명의 명칭"
 APPLICATION_FIELD = "출원번호"
@@ -18,71 +27,97 @@ APPLICANT_FIELD = "출원인"
 IPC_FIELD = "IPC"
 STATUS_FIELD = "등록상태"
 
-REVIEW_CHOICES = ("관련 있음", "관련 없음", "추가 검토")
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
-JUDGMENTS_PATH = DATA_DIR / "judgments.json"
-
-_READ_ERROR_MESSAGE = "data/judgments.json을 읽지 못했습니다. 파일이 손상되지 않았는지 확인해주세요."
-_FORMAT_ERROR_MESSAGE = (
-    "data/judgments.json 형식이 올바르지 않습니다. 기존 판단 기록을 유지하기 위해 자동 저장을 중단합니다."
-)
+class JudgmentValidationError(ValueError):
+    """Gate B validation failed; nothing was written."""
 
 
-class JudgmentStoreError(RuntimeError):
-    """The judgment history file could not be read or is malformed."""
+class DuplicateJudgmentError(ValueError):
+    """An identical judgment for this key already exists as the latest one."""
 
 
-def load_judgments(path: Path = JUDGMENTS_PATH) -> list[dict[str, str | float]]:
-    """Load judgment history. Never silently replaces a bad file with an empty one."""
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", encoding="utf-8") as source:
-            data = json.load(source)
-    except OSError as exc:
-        raise JudgmentStoreError(_READ_ERROR_MESSAGE) from exc
-    except json.JSONDecodeError as exc:
-        raise JudgmentStoreError(_FORMAT_ERROR_MESSAGE) from exc
-    if not isinstance(data, list):
-        raise JudgmentStoreError(_FORMAT_ERROR_MESSAGE)
-    return [entry for entry in data if isinstance(entry, dict)]
+def _is_duplicate(latest: sqlite3.Row | None, decision: str, reason: str, assignee: str, review_deadline: str) -> bool:
+    if latest is None:
+        return False
+    return (
+        latest["decision"] == decision
+        and latest["reason"] == reason
+        and latest["assignee"] == assignee
+        and latest["review_deadline"] == review_deadline
+    )
 
 
-def save_judgment(
-    record: dict[str, str | float],
+def save_gate_b_judgment(
+    conn: sqlite3.Connection,
+    *,
+    application_number: str,
+    review_technology: str,
     decision: str,
     reason: str,
-    score_field: str,
-    priority_field: str,
-    path: Path = JUDGMENTS_PATH,
-) -> dict[str, str | float]:
-    """Append one human decision. Rejects a blank reason before writing anything."""
-    if decision not in REVIEW_CHOICES:
-        raise ValueError(f"decision must be one of {REVIEW_CHOICES}.")
+    premises: list[tuple[str, str, str]],
+    assignee: str,
+    review_deadline: str,
+    search_query: str | None = None,
+    analysis_mode: str | None = None,
+    relevance_score: float | None = None,
+    review_priority: str | None = None,
+) -> int:
+    """Validate and append one Gate B judgment. Returns the new judgment id.
+
+    ``premises`` is a list of (source, check_key, expected_value) triples;
+    rows with a blank expected_value are dropped before the "at least one
+    premise" check, so a UI can pass a fixed number of input rows and let
+    empty ones simply not count.
+    """
     reason = reason.strip()
+    assignee = assignee.strip()
+    review_deadline = review_deadline.strip()
+
+    if decision not in DECISION_CHOICES:
+        raise JudgmentValidationError(f"결정은 다음 중 하나여야 합니다: {', '.join(DECISION_CHOICES)}")
     if not reason:
-        raise ValueError("판단 이유는 비어 있을 수 없습니다.")
+        raise JudgmentValidationError("판단 이유는 비어 있을 수 없습니다.")
+    if not assignee:
+        raise JudgmentValidationError("담당자를 입력해주세요.")
+    if not review_deadline:
+        raise JudgmentValidationError("재검토 기한을 입력해주세요.")
 
-    history = load_judgments(path)
-    entry: dict[str, str | float] = {
-        "applicationNumber": str(record.get(APPLICATION_FIELD) or ""),
-        "inventionTitle": str(record.get(TITLE_FIELD) or ""),
-        "decision": decision,
-        "decisionReason": reason,
-        "decisionTime": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "registerStatusAtDecision": str(record.get(STATUS_FIELD) or ""),
-        "applicantNameAtDecision": str(record.get(APPLICANT_FIELD) or ""),
-        "ipcNumberAtDecision": str(record.get(IPC_FIELD) or ""),
-        "relevanceScoreAtDecision": float(record.get(score_field) or 0),
-        "reviewPriorityAtDecision": str(record.get(priority_field) or ""),
-    }
-    history.append(entry)
+    cleaned_premises = [
+        (source.strip(), check_key.strip(), expected_value.strip())
+        for source, check_key, expected_value in premises
+        if expected_value.strip()
+    ]
+    if not cleaned_premises:
+        raise JudgmentValidationError("전제를 1개 이상 입력해주세요.")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_suffix(".json.tmp")
-    with temporary_path.open("w", encoding="utf-8") as destination:
-        json.dump(history, destination, ensure_ascii=False, indent=2)
-        destination.write("\n")
-    temporary_path.replace(path)
-    return entry
+    latest = fetch_latest_judgment(conn, application_number, review_technology)
+    if _is_duplicate(latest, decision, reason, assignee, review_deadline):
+        raise DuplicateJudgmentError("동일한 판단이 이미 저장되어 있습니다.")
+
+    data = JudgmentInput(
+        application_number=application_number,
+        review_technology=review_technology,
+        decision=decision,
+        reason=reason,
+        assignee=assignee,
+        review_deadline=review_deadline,
+        premises=[
+            PremiseInput(source=source, check_key=check_key, expected_value=expected_value)
+            for source, check_key, expected_value in cleaned_premises
+        ],
+        search_query=search_query,
+        analysis_mode=analysis_mode,
+        relevance_score=relevance_score,
+        review_priority=review_priority,
+        previous_judgment_id=latest["id"] if latest is not None else None,
+    )
+    return _insert_judgment(conn, data)
+
+
+def history_for_application(conn: sqlite3.Connection, application_number: str) -> list[sqlite3.Row]:
+    """All judgments for one application number, most recent first."""
+    return fetch_judgments_for_application(conn, application_number)
+
+
+def premises_for_judgment(conn: sqlite3.Connection, judgment_id: int) -> list[sqlite3.Row]:
+    return fetch_premises_for_judgment(conn, judgment_id)
