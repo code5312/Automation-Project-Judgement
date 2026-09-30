@@ -1,5 +1,7 @@
 # 사람판단 주제 최소 검증
 
+> **현재 서비스:** [U3 업무 서비스](https://meeting-demo-two.vercel.app/). 실제 공개 문헌·변경·정의를 처리하는 다섯 작업 공간으로 확장했다. [현재 구현·검증·한계](working-services.md)를 먼저 참고한다. 아래의 제품 목업 설명은 이전 `demo.html` 체험 기록이다.
+
 실제 HTTP·DB·파일 실행과 외부 조회의 1차 검증은 [실행 검증 기록](execution-validation.md)에 기록했다. [실행 근거 화면](https://meeting-demo-two.vercel.app/evidence.html)은 저장된 실행 결과이며 기존 체험 시뮬레이션과 구분한다.
 
 > **현재 회의용 화면:** [U3 제품 목업](https://meeting-demo-two.vercel.app/). 9/30 제품 목업은 아래의 초기 기준선 시연에서 발전한 별도 체험이다. 다섯 주제를 준비된 가상 시나리오로 처리하며 기존 실험 성능을 새 목업의 정확도로 표시하지 않는다. 상세 출처·시나리오 보정·검증은 [목업 검증 기록](mockup-validation.md)을 참고한다.
