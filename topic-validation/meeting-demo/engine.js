@@ -60,7 +60,7 @@
     return order.external === 'MUG-WHT' && (scope === 'broad' || (order.channel === '스마트스토어' && order.volume === 350));
   }
   function replay(orders, scope) {
-    return orders.map(order => ({id:order.id, matched:mappingMatch(order,scope), correct:!mappingMatch(order,scope)||order.target==='SKU-MUG-350-W'}));
+    return orders.map(order => ({id:order.id, matched:mappingMatch(order,scope), correct:!mappingMatch(order,scope)||order.target==='SKU-MUG-350-W', proposed:mappingMatch(order,scope)?'SKU-MUG-350-W':null, historical:order.target, channel:order.channel, volume:order.volume}));
   }
   function crmRun(order, fixed, input) {
     const customer={...input},trace=[];

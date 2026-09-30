@@ -10,5 +10,11 @@ patent=ROOT.parent/'patent-evidence-poc'/'output'
 report['patent_baseline']=json.loads((patent/'candidate_generation.json').read_text(encoding='utf-8'))['summary']['all']
 if (patent/'page_probe.json').exists():
     report['patent_page_probe']=json.loads((patent/'page_probe.json').read_text(encoding='utf-8'))
+if (patent/'expression_probe.json').exists():
+    report['patent_expression_probe']=json.loads((patent/'expression_probe.json').read_text(encoding='utf-8'))
+if (ROOT/'output'/'n8n-probe.json').exists():
+    report['n8n_probe']=json.loads((ROOT/'output'/'n8n-probe.json').read_text(encoding='utf-8'))
+if (ROOT/'output'/'public-cases.json').exists():
+    report['public_cases']=json.loads((ROOT/'output'/'public-cases.json').read_text(encoding='utf-8'))
 target=ROOT/'meeting-demo'
 (target/'execution-evidence.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

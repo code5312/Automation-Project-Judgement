@@ -15,6 +15,7 @@ textarea{width:100%;min-height:85px;resize:vertical}footer{color:#718298;font-si
 @media(max-width:720px){.app-shell{display:block}.sidebar{padding:14px}.brand{display:none}.nav-label,.side-bottom{display:none}.sidebar nav{display:flex;overflow:auto}.nav-item{white-space:nowrap;width:auto;padding:9px 11px}.topbar{padding:18px;align-items:flex-start}.topbar h1{font-size:1.15rem}.topbar button{font-size:.77rem}main{padding:15px}.hero{padding:22px}.hero h2{font-size:1.38rem}.metric-row,.feedback-grid{grid-template-columns:1fr}}
 
 /* Product mock workspace */
+.work-guide{border:1px solid #c5d9e9;background:#eef6fc;border-radius:12px;padding:18px;margin:0 0 22px;display:grid;gap:12px}.work-guide strong{display:block;margin-top:6px}.work-guide p{font-size:.85rem;line-height:1.6;margin:7px 0}.work-guide summary{cursor:pointer;font-weight:700;color:#255b84}.evidence-preview{padding:12px;background:#f1f5f9;border-radius:8px;max-width:100%!important;line-height:1.65}.work-guide a{font-size:.85rem}.panel .primary{white-space:normal}
 .workspace-grid>.panel,.workspace-grid>.stack,.project-layout>.panel{min-width:0}.field{min-width:0}.field select{width:100%;max-width:100%}.table-wrap{max-width:100%}
 .hint.dismissed .tooltip{display:none!important}
 :root{--ink:#17283e;--blue:#246caa;--line:#dbe5ee;--paper:#fff}

@@ -7,15 +7,26 @@ const descriptions={
 };
 const escapeText=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let evidence;
+function expressionSummary(){
+ const rows=Object.values(evidence.patent_expression_probe?.cases||{});
+ if(!rows.length)return '표시할 진단 결과가 없습니다.';
+ return rows.map(row=>{
+  if(row.failures?.length)return '일부 표현 조회가 실패했습니다. 상세 기록의 오류와 확보된 범위를 확인하세요.';
+  return `시점 조건을 만족하는 후보는 ${escapeText(row.before.candidates)}→${escapeText(row.after.candidates)}건, 인용 문헌 회수는 ${escapeText(row.before.covered_proxies)}/${escapeText(row.citation_proxy_count)}→${escapeText(row.after.covered_proxies)}/${escapeText(row.citation_proxy_count)}입니다.`;
+ }).join(' ');
+}
 function show(id){
  const text=descriptions[id],item=evidence.topics[id];
  document.querySelectorAll('#tabs button').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.topic===id)));
- const extra=id==='b3'?{public_trace:evidence.external_trace}:id==='patent'?{existing_baseline:evidence.patent_baseline,page_probe:evidence.patent_page_probe}:{};
+ const extra=id==='b3'?{public_trace:evidence.external_trace,public_changes:evidence.public_cases}:id==='patent'?{existing_baseline:evidence.patent_baseline,page_probe:evidence.patent_page_probe,expression_probe:evidence.patent_expression_probe}:id==='b2'?{public_cases:evidence.public_cases,n8n_probe:evidence.n8n_probe}:id==='b1'?{public_cases:evidence.public_cases}:{};
+ const publicCases=evidence.public_cases?.cases;
+ const publicSummary=publicCases&&['b1','b2','b3'].includes(id)?`<article class="panel"><h3>추가로 확보한 공개 사례</h3><p>재시도 오류 수정 PR: ${publicCases.retry_fix?.status==='failed'?'조회 실패':publicCases.retry_fix?.merged?'병합됨':'미병합'} · 변경 파일 ${publicCases.retry_fix?.files?.length??'미확인'}개. 공유 저장소 충돌 수정 PR: ${publicCases.shared_storage_conflict?.status==='failed'?'조회 실패':publicCases.shared_storage_conflict?.merged?'병합됨':'미병합'} · 변경 파일 ${publicCases.shared_storage_conflict?.files?.length??'미확인'}개.</p><p>이슈·수정 코드·테스트 변경의 공개 기록을 확보했습니다. 현업 주문별 해결 이력이나 완전한 변경 영향 정답은 아닙니다. U3에서 원본 시스템을 실행한 결과도 아닙니다.</p><a href="https://github.com/n8n-io/n8n/pull/8480" target="_blank" rel="noopener">재시도 수정 원문</a> · <a href="https://github.com/n8n-io/n8n/pull/25541" target="_blank" rel="noopener">공유 저장소 충돌 수정 제안</a></article>`:'';
  const source=id==='d'&&item.release_url?`<p><a href="${escapeText(item.release_url)}" target="_blank" rel="noopener">실제 릴리스</a> · <a href="${escapeText(item.comparison_url)}" target="_blank" rel="noopener">변경 원문</a></p>`:'';
- document.querySelector('#details').innerHTML=`<h2>${text.name}</h2><div class="evidence-grid"><article class="panel"><h3>입력과 실행</h3><p>${text.input}</p><p>${text.execution}</p></article><article class="panel"><h3>관찰 결과</h3><p>${item.status==='failed'?'이번 외부 조회는 실패했습니다. 아래 결과의 오류 유형을 확인하세요.':text.result}</p></article><article class="panel"><h3>사람이 결정할 것</h3><p>${text.human}</p></article><article class="panel"><h3>아직 확인하지 못한 것</h3><p>${text.unknown}</p></article></div>${source}<details><summary>실행 기록과 측정값 펼치기</summary><pre>${escapeText(JSON.stringify({execution:item,...extra},null,2))}</pre></details>`;
+ const diagnostic=id==='patent'&&evidence.patent_expression_probe?`<article class="panel"><h3>표현 차이 추가 조회</h3><p>오브젝트→객체·물체, 거리측정→거리 측정을 한 사례에서 시험했습니다. ${expressionSummary()}</p><p>이전에 확인한 사례의 작은 진단이며 일반 검색 성능이 아닙니다. 후보 증가를 검색 개선으로 해석하지 않습니다.</p></article>`:id==='b2'&&evidence.n8n_probe?`<article class="panel"><h3>실제 자동화 도구 실행</h3><p>${evidence.n8n_probe.status==='verified'?'실제 n8n에서 4개 순차 HTTP 워크플로를 실행했고 기대 저장 상태와 요청 순서를 확인했습니다.':'n8n 실행 검증이 완료되지 않았습니다. 이번 시도의 실패 정보는 상세 기록에 남겼습니다.'}</p><p>통제 입력이며 병렬 실행·실제 고객 시스템의 충돌 탐지 성능은 검증하지 않았습니다.</p></article>`:'';
+ document.querySelector('#details').innerHTML=`<h2>${text.name}</h2><div class="evidence-grid"><article class="panel"><h3>입력과 실행</h3><p>${text.input}</p><p>${text.execution}</p></article><article class="panel"><h3>관찰 결과</h3><p>${item.status==='failed'?'이번 외부 조회는 실패했습니다. 아래 결과의 오류 유형을 확인하세요.':text.result}</p></article><article class="panel"><h3>사람이 결정할 것</h3><p>${text.human}</p></article><article class="panel"><h3>아직 확인하지 못한 것</h3><p>${text.unknown}</p></article></div>${source}${publicSummary}${diagnostic}<details><summary>실행 기록과 측정값 펼치기</summary><pre>${escapeText(JSON.stringify({execution:item,...extra},null,2))}</pre></details>`;
 }
 fetch('execution-evidence.json').then(response=>{if(!response.ok)throw new Error('HTTP '+response.status);return response.json();}).then(data=>{
  evidence=data;document.querySelector('#run-time').textContent='실행 시각: '+new Date(data.run_at).toLocaleString('ko-KR');
  document.querySelector('#tabs').innerHTML=Object.entries(descriptions).map(([id,text])=>`<button class="secondary" data-topic="${id}" aria-pressed="false">${text.name}</button>`).join('');
- document.querySelector('#tabs').addEventListener('click',event=>{const button=event.target.closest('[data-topic]');if(button)show(button.dataset.topic);});show('b1');
+ document.querySelector('#tabs').addEventListener('click',event=>{const button=event.target.closest('[data-topic]');if(button){history.replaceState(null,'','#'+button.dataset.topic);show(button.dataset.topic);}});const initial=location.hash.slice(1);show(descriptions[initial]?initial:'b1');
 }).catch(()=>{document.querySelector('#run-time').textContent='실행 결과를 읽지 못했습니다. 페이지를 새로고침하거나 JSON 링크를 확인하세요.';});
