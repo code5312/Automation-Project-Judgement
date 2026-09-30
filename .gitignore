@@ -1,6 +1,7 @@
 # Secrets / environment
 .env
 .env.*
+!.env.example
 .streamlit/secrets.toml
 
 # Python
@@ -9,6 +10,8 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.ruff_cache/
+.pytest_cache/
 
 # Virtual environments
 .venv/

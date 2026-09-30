@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SAMPLE fixture: KIPRIS reporting an unsuccessful call. Not real KIPRIS data. -->
+<response>
+  <header>
+    <resultCode>99</resultCode>
+    <resultMsg>SAMPLE SERVICE ERROR</resultMsg>
+    <successYN>N</successYN>
+  </header>
+  <body>
+    <items />
+  </body>
+</response>

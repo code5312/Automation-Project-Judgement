@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SAMPLE fixture: a successful call that found zero records. Not real KIPRIS data. -->
+<response>
+  <header>
+    <resultCode>00</resultCode>
+    <resultMsg>OK</resultMsg>
+    <successYN>Y</successYN>
+  </header>
+  <body>
+    <items />
+  </body>
+</response>

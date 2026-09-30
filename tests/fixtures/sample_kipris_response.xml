@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  This is a hand-written SAMPLE fixture that mimics the shape of a real
+  KIPRIS Plus freeSearchInfo response. It is not real KIPRIS data: every
+  application number, applicant, and abstract below is invented for testing
+  and is marked "샘플"/"SAMPLE" throughout.
+-->
+<response>
+  <header>
+    <resultCode>00</resultCode>
+    <resultMsg>OK</resultMsg>
+    <successYN>Y</successYN>
+  </header>
+  <body>
+    <items>
+      <PatentUtilityInfo>
+        <inventionTitle>샘플 배터리 열관리 시스템</inventionTitle>
+        <applicationNumber>SAMPLE-0000001</applicationNumber>
+        <applicantName>샘플대학교 산학협력단</applicantName>
+        <ipcNumber>H01M 10/613|H01M 10/625</ipcNumber>
+        <registerStatus>공개(샘플)</registerStatus>
+        <astrtCont>이 항목은 테스트용 샘플 초록입니다. 배터리 냉각 관련 가상의 설명입니다.</astrtCont>
+      </PatentUtilityInfo>
+      <PatentUtilityInfo>
+        <inventionTitle>샘플 무관 기술 장치</inventionTitle>
+        <applicationNumber>SAMPLE-0000002</applicationNumber>
+        <applicantName>샘플 주식회사</applicantName>
+        <ipcNumber>G06F 1/20</ipcNumber>
+        <registerStatus>등록(샘플)</registerStatus>
+        <astrtCont>샘플 데이터로 작성된 배터리·냉각과 무관한 두 번째 항목입니다.</astrtCont>
+      </PatentUtilityInfo>
+    </items>
+  </body>
+</response>
