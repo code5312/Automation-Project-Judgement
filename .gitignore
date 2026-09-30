@@ -21,6 +21,7 @@ env/
 # Generated output
 outputs/*.csv
 data/judgments.json
+data/*.db
 
 # IDE
 .vscode/
