@@ -6,9 +6,9 @@ each distinguishable failure mode instead of returning ambiguous results.
 "HTTP call failed" and "the call succeeded but found zero records" are never
 confused: the former raises, the latter returns an empty list.
 
-Multi-query fan-out and pagination beyond a single page belong to phase 2
-(``docs/PIPELINE.md`` 단계 2); this module exposes a single-page fetch that a
-later caller can loop over.
+``fetch_page`` fetches a single page. ``fetch_all`` (단계 2) fans a search out
+over multiple query terms, paginates each one until KIPRIS returns a short
+page, and dedupes the combined records by 출원번호.
 """
 
 from __future__ import annotations
@@ -188,6 +188,70 @@ def fetch_page(query: str, access_key: str, count: int = MAX_COUNT, start: int =
     )
     raise_if_unsuccessful(page, access_key)
     return page
+
+
+DEFAULT_MAX_PAGES_PER_QUERY = 10  # safety cap: 10 * MAX_COUNT = 200 records per query
+
+
+@dataclass(frozen=True)
+class MultiQueryResult:
+    """Combined, deduplicated result of fanning a search out over several queries."""
+
+    records: list[KiprisRecord]
+    duplicate_count: int
+    query_page_counts: dict[str, int]
+
+
+def dedupe_by_application_number(records: list[KiprisRecord]) -> tuple[list[KiprisRecord], int]:
+    """Drop records sharing a non-empty 출원번호, keeping the first occurrence.
+
+    Records with no 출원번호 can't be deduplicated reliably and are all kept.
+    """
+    seen: set[str] = set()
+    deduped: list[KiprisRecord] = []
+    duplicate_count = 0
+    for record in records:
+        application_number = record.get("출원번호")
+        if application_number:
+            if application_number in seen:
+                duplicate_count += 1
+                continue
+            seen.add(application_number)
+        deduped.append(record)
+    return deduped, duplicate_count
+
+
+def fetch_all(
+    queries: list[str],
+    access_key: str,
+    page_size: int = MAX_COUNT,
+    max_pages_per_query: int = DEFAULT_MAX_PAGES_PER_QUERY,
+) -> MultiQueryResult:
+    """Fan a search out over multiple query terms with pagination, then dedupe.
+
+    Each query is paginated until KIPRIS returns a page shorter than
+    ``page_size`` (no more results) or ``max_pages_per_query`` is reached.
+    Raises a typed KiprisError on the first failing call, same as fetch_page.
+    """
+    if not queries:
+        raise ValueError("At least one search query is required.")
+
+    all_records: list[KiprisRecord] = []
+    query_page_counts: dict[str, int] = {}
+    for query in queries:
+        start = 1
+        pages_fetched = 0
+        for _ in range(max_pages_per_query):
+            page = fetch_page(query, access_key, count=page_size, start=start)
+            pages_fetched += 1
+            all_records.extend(page.records)
+            if len(page.records) < page_size:
+                break
+            start += page_size
+        query_page_counts[query] = pages_fetched
+
+    deduped, duplicate_count = dedupe_by_application_number(all_records)
+    return MultiQueryResult(records=deduped, duplicate_count=duplicate_count, query_page_counts=query_page_counts)
 
 
 def raise_if_unsuccessful(page: KiprisPage, access_key: str | None = None) -> None:

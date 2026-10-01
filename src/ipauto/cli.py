@@ -1,10 +1,11 @@
 """Command-line entry point.
 
-``python -m ipauto.cli search "battery" --technology "..."`` reproduces the
-original prototype's CLI: fetch one page from KIPRIS, score it, print a
-ranked summary, and save a debug CSV under outputs/. This is kept for
-debugging (docs/DESIGN.md 기존 코드의 새 구조 매핑); the SQLite-backed
-Judgment flow lives behind the Streamlit UI, not this CLI.
+``python -m ipauto.cli search "battery" --technology "..."`` fans the search
+out over one or more query terms (paginating each, deduping by 출원번호),
+scores the combined records, prints a ranked summary, and saves a debug CSV
+under outputs/. This is kept for debugging (docs/DESIGN.md 기존 코드의 새
+구조 매핑); the SQLite-backed Judgment flow lives behind the Streamlit UI,
+not this CLI.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ipauto.config import get_kipris_access_key, mask_secret
-from ipauto.connectors.kipris import FIELDS, KiprisError, fetch_page
+from ipauto.connectors.kipris import DEFAULT_MAX_PAGES_PER_QUERY, FIELDS, KiprisError, fetch_all
 from ipauto.scoring.keywords import (
     ANALYSIS_MODE_FIELD,
     MATCHED_FIELD,
@@ -48,28 +49,26 @@ def _run_search(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        page = fetch_page(args.search_query, access_key, count=args.count)
+        result = fetch_all(
+            args.search_query, access_key, page_size=args.count, max_pages_per_query=args.max_pages
+        )
     except KiprisError as exc:
         print(f"Error: {mask_secret(str(exc), access_key)}", file=sys.stderr)
         return 1
 
     if args.debug:
-        print(f"[DEBUG] HTTP status: {page.http_status}")
-        print(f"[DEBUG] KIPRIS resultCode: {page.result_code}")
-        print(f"[DEBUG] KIPRIS resultMsg: {page.result_msg}")
-        print(f"[DEBUG] KIPRIS successYN: {page.success_yn}")
-        print(f"[DEBUG] Discovered <PatentUtilityInfo> count: {page.patent_node_count}")
-        print(f"[DEBUG] Discovered <item> count: {page.item_node_count}")
-        print(f"[DEBUG] First record child tags: {', '.join(page.first_record_fields)}")
+        for query, pages in result.query_page_counts.items():
+            print(f"[DEBUG] Query '{query}': {pages} page(s) fetched")
+        print(f"[DEBUG] Duplicate records removed (동일 출원번호): {result.duplicate_count}")
 
-    if not page.records:
+    if not result.records:
         print("No patent records were found. No CSV was created.", file=sys.stderr)
         return 1
 
-    ranked = rank_records(args.technology, [record.fields for record in page.records])
+    ranked = rank_records(args.technology, [record.fields for record in result.records])
     output_path = _save_csv(ranked)
 
-    print(f"KIPRIS broad search: {args.search_query}")
+    print(f"KIPRIS broad search: {', '.join(args.search_query)}")
     print(f"Relevance target: {args.technology}")
     print(f"Received {len(ranked)} actual records from KIPRIS Plus, sorted by relevance.")
     for index, record in enumerate(ranked, start=1):
@@ -88,13 +87,23 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     search = subparsers.add_parser("search", help="Search real KIPRIS Plus records and rank them")
-    search.add_argument("search_query", help="Broad KIPRIS API search term, for example: battery")
+    search.add_argument(
+        "search_query",
+        nargs="+",
+        help="One or more broad KIPRIS API search terms, for example: battery cooling",
+    )
     search.add_argument(
         "--technology",
         required=True,
         help="Focused technology to score against, for example: electric vehicle battery cooling",
     )
-    search.add_argument("--count", type=int, default=20, help="Number of results (1-20, default: 20)")
+    search.add_argument("--count", type=int, default=20, help="Results per page (1-20, default: 20)")
+    search.add_argument(
+        "--max-pages",
+        type=int,
+        default=DEFAULT_MAX_PAGES_PER_QUERY,
+        help=f"Max pages fetched per search term (default: {DEFAULT_MAX_PAGES_PER_QUERY})",
+    )
     search.add_argument("--debug", action="store_true", help="Print HTTP/XML diagnostics; access key is redacted")
     search.set_defaults(func=_run_search)
 

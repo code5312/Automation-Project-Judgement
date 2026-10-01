@@ -13,7 +13,7 @@ import datetime as dt
 import streamlit as st
 
 from ipauto.config import get_kipris_access_key, mask_secret
-from ipauto.connectors.kipris import KiprisError, fetch_page
+from ipauto.connectors.kipris import DEFAULT_MAX_PAGES_PER_QUERY, KiprisError, fetch_all
 from ipauto.db.connection import connect, init_db
 from ipauto.db.repositories import DECISION_CHOICES
 from ipauto.judgments.compare import compare_with_premises
@@ -188,10 +188,10 @@ def main() -> None:
 
     with st.form("patent_search_form"):
         search_col, technology_col = st.columns(2)
-        search_query = search_col.text_input(
+        search_query_raw = search_col.text_input(
             "KIPRIS 검색 범위",
             value="배터리",
-            help="KIPRIS Plus API에 전달할 검색어입니다.",
+            help="KIPRIS Plus API에 전달할 검색어입니다. 쉼표(,)로 여러 검색어를 입력하면 모두 검색해 합칩니다.",
         )
         technology = technology_col.text_input(
             "검토하려는 기술",
@@ -206,7 +206,8 @@ def main() -> None:
 
     if submitted:
         st.session_state.pop("ranked_patents", None)
-        if not search_query.strip() or not technology.strip():
+        search_queries = [term.strip() for term in search_query_raw.split(",") if term.strip()]
+        if not search_queries or not technology.strip():
             st.error("KIPRIS 검색 범위와 검토 기술을 모두 입력해주세요.")
         else:
             access_key = get_kipris_access_key()
@@ -215,11 +216,17 @@ def main() -> None:
             else:
                 try:
                     with st.spinner("KIPRIS Plus에서 실제 특허 데이터를 가져오고 분석하는 중..."):
-                        page = fetch_page(search_query.strip(), access_key, count=SEARCH_COUNT)
-                        if page.records:
-                            ranked = rank_records(technology.strip(), [r.fields for r in page.records])
+                        result = fetch_all(
+                            search_queries,
+                            access_key,
+                            page_size=SEARCH_COUNT,
+                            max_pages_per_query=DEFAULT_MAX_PAGES_PER_QUERY,
+                        )
+                        if result.records:
+                            ranked = rank_records(technology.strip(), [r.fields for r in result.records])
                             st.session_state["ranked_patents"] = ranked
-                            st.session_state["analysis_inputs"] = (search_query.strip(), technology.strip())
+                            st.session_state["analysis_inputs"] = (", ".join(search_queries), technology.strip())
+                            st.session_state["duplicate_count"] = result.duplicate_count
                         else:
                             st.warning(
                                 "KIPRIS Plus 응답에서 특허 레코드를 찾지 못했습니다. "
@@ -238,6 +245,9 @@ def main() -> None:
     review_technology = st.session_state["analysis_inputs"][1]
     st.subheader("분석 결과")
     st.caption(f"KIPRIS 검색: {st.session_state['analysis_inputs'][0]}  |  평가 기술: {review_technology}")
+    duplicate_count = st.session_state.get("duplicate_count", 0)
+    if duplicate_count:
+        st.caption(f"동일 출원번호 중복 {duplicate_count}건 제거됨")
     summary_cols = st.columns(4)
     summary_cols[0].metric("검색된 특허", f"{len(ranked_patents)}건")
     summary_cols[1].metric("높음", f"{high_count}건")
