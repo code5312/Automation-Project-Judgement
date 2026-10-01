@@ -166,14 +166,26 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
     found_concepts = title_hits | abstract_hits
     detected_ipc = ipc.detected_families(ipc_value)
     concept_family_map = rules.get_ipc_rules().concept_family_map
+    # Both IPC signals require the concept to already be found in the
+    # record's own title/abstract text (found_concepts), not merely asked
+    # about in the search query (target_concepts). IPC classification is a
+    # corroborating signal for a concept the text already suggests, not an
+    # independent substitute for it — otherwise any record classified under
+    # a cooling-related IPC code gets boosted even if nothing in its text is
+    # about cooling (confirmed by data/eval/ev_battery_cooling_v1.json: a
+    # plain battery-pack housing patent was scored 높음 on IPC alone).
     ipc_hits = [
-        code
-        for concept, code in concept_family_map.items()
-        if concept in target_concepts and code in detected_ipc
+        code for concept, code in concept_family_map.items() if concept in found_concepts and code in detected_ipc
     ]
-    primary_hits = [
-        code for code, concept in ipc.detected_primary_signals(ipc_value) if concept in target_concepts
+    primary_matches = [
+        (code, concept) for code, concept in ipc.detected_primary_signals(ipc_value) if concept in found_concepts
     ]
+    # A record can list several subgroup codes inside the same primary
+    # range (e.g. H01M10/613 and H01M10/625 together); the bonus applies
+    # once per distinct concept confirmed, not once per matching code, so
+    # listing more sub-codes for the same concept can't multiply the bonus.
+    primary_hits = [code for code, _ in primary_matches]
+    primary_concepts_hit = {concept for _, concept in primary_matches}
 
     score = sum(concept_rules.title_weights[c] for c in title_hits)
     score += sum(concept_rules.abstract_weights[c] for c in abstract_hits)
@@ -187,7 +199,7 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
     if has_vehicle:
         score += concept_rules.vehicle_presence_bonus
     score += concept_rules.ipc_code_bonus * len(ipc_hits)
-    score += concept_rules.primary_ipc_bonus * len(primary_hits)
+    score += concept_rules.primary_ipc_bonus * len(primary_concepts_hit)
     score = float(min(score, 100))
 
     concept_order = ("vehicle", "battery", "cooling")

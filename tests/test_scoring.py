@@ -70,6 +70,52 @@ def test_calculate_relevance_falls_back_to_generic_keywords():
     assert result["analysis_mode"] == MODE_GENERIC_KEYWORD
 
 
+def test_calculate_relevance_ipc_bonus_requires_textual_concept_match():
+    # Regression test: a battery-pack housing patent whose IPC happens to
+    # fall in the cooling subrange, but whose title/abstract never mentions
+    # cooling/thermal management at all, must not get the primary/family IPC
+    # bonus — classification alone isn't enough; the record's own text has
+    # to corroborate the concept (data/eval/ev_battery_cooling_v1.json found
+    # a real "배터리 팩" housing patent scored 높음 on IPC alone before this
+    # fix).
+    housing_record = {
+        "발명의 명칭": "배터리 팩 하우징 구조",
+        "출원번호": "SAMPLE-0000003",
+        "출원인": "샘플 주식회사",
+        "IPC": "H01M 10/6557|H01M 10/613|H01M 10/6561",
+        "등록상태": "공개(샘플)",
+        "초록": "배터리 팩은 베이스 플레이트와 사이드 월을 포함하는 하우징 구조에 관한 것이다.",
+    }
+
+    result = calculate_relevance("전기차 배터리 냉각", housing_record)
+
+    assert "IPC-주신호" not in result["matched_concepts"]
+    assert result["review_priority"] != PRIORITY_HIGH
+
+
+def test_calculate_relevance_primary_ipc_bonus_not_multiplied_by_code_count():
+    # Multiple sub-codes inside the same confirmed range (613, 625, 656)
+    # describe one cooling system, not three independent ones — the bonus
+    # must apply once per concept, not once per matching code. Kept away
+    # from the battery/vehicle concepts and the 100-point cap so the two
+    # records would visibly differ if the bonus were still multiplied.
+    base_record = {
+        "발명의 명칭": "샘플 장치",
+        "출원번호": "SAMPLE-0000004",
+        "출원인": "샘플 주식회사",
+        "등록상태": "공개(샘플)",
+        "초록": "샘플 냉각 구조에 대한 가상의 설명입니다.",
+    }
+    single_code_record = {**base_record, "IPC": "H01M 10/613"}
+    multi_code_record = {**base_record, "출원번호": "SAMPLE-0000005", "IPC": "H01M 10/613|H01M 10/625|H01M 10/656"}
+
+    single_result = calculate_relevance("전기차 배터리 냉각", single_code_record)
+    multi_result = calculate_relevance("전기차 배터리 냉각", multi_code_record)
+
+    assert single_result["relevance_score"] < 100
+    assert single_result["relevance_score"] == multi_result["relevance_score"]
+
+
 def test_extract_generic_keywords_strips_particles_and_stopwords():
     keywords = extract_generic_keywords("반도체 장치에서의 열처리 공정을 개선")
     assert "장치" not in keywords  # stopword
