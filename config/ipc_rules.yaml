@@ -1,0 +1,14 @@
+# IPC 규칙 설정 (docs/PIPELINE.md 단계 2).
+# IPC H01M 10/60~10/667이 배터리 열관리의 정확한 범위인지는 아직 미확인이다
+# (docs/OPEN_QUESTIONS.md). 서브레인지가 아니라 패밀리 단위(H01M, B60L)만
+# 인식하는 것이 더 넓지만 더 안전한 신호라서 패밀리로만 설정했다.
+# 읽는 쪽: src/ipauto/scoring/rules.py, 사용하는 쪽: src/ipauto/scoring/ipc.py,
+# src/ipauto/scoring/keywords.py
+
+families: ["H01M", "B60L"]
+
+# 어느 개념 그룹이 어느 IPC 패밀리와 연결되는지(점수 보조용 매핑).
+# concepts.yaml의 concept_groups 키와 이름이 맞아야 한다.
+concept_family_map:
+  battery: H01M
+  vehicle: B60L

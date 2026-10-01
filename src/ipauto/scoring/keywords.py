@@ -2,17 +2,18 @@
 
 This is a direct, Korean-readable port of the prototype's scoring logic
 (previously in ``main.py`` with ``\\uXXXX``-escaped literals). Concept
-groups/weights and the particle/ending suffix lists are still module
-constants; moving them to ``config/concepts.yaml`` and swapping the suffix
-stripping for a real morphological analyzer (kiwipiepy) is phase 2 work
-(docs/PIPELINE.md 단계 2).
+groups, weights, and bonuses are loaded from ``config/concepts.yaml`` via
+``ipauto.scoring.rules`` (docs/PIPELINE.md 단계 2); the particle/ending
+suffix lists below are still module constants — swapping the suffix
+stripping for a real morphological analyzer (kiwipiepy) is separate 단계 2
+work.
 """
 
 from __future__ import annotations
 
 import re
 
-from ipauto.scoring import bands, ipc
+from ipauto.scoring import bands, ipc, rules
 
 SCORE_FIELD = "relevance_score"
 PRIORITY_FIELD = "review_priority"
@@ -26,24 +27,6 @@ MODE_GENERIC_KEYWORD = "generic_keyword"
 GENERIC_FALLBACK_MESSAGE = (
     "사전 정의된 기술 개념 그룹이 없어 입력된 평가 기술어를 기반으로 범용 키워드 분석을 수행했습니다."
 )
-
-CONCEPT_GROUPS: dict[str, tuple[str, ...]] = {
-    "vehicle": ("전기차", "전기 자동차", "차량", "자동차"),
-    "battery": ("배터리",),
-    "cooling": ("냉각", "열관리", "온도관리", "수냉", "냉각수", "냉매", "열교환"),
-}
-# Points per concept mention. Title evidence is worth more than abstract evidence.
-TITLE_WEIGHTS = {"vehicle": 3, "battery": 4, "cooling": 6}
-ABSTRACT_WEIGHTS = {"vehicle": 2, "battery": 2, "cooling": 3}
-CORE_BOTH_BONUS = 65  # battery and cooling both found
-SINGLE_CORE_BONUS = 25  # only battery or only cooling found
-VEHICLE_PRESENCE_BONUS = 5
-IPC_CODE_BONUS = 2  # small supplement only: configured IPC families
-
-GENERIC_TITLE_WEIGHT = 4
-GENERIC_ABSTRACT_WEIGHT = 2
-GENERIC_MULTI_KEYWORD_BONUS = 3
-GENERIC_IPC_WEIGHT = 1
 
 KOREAN_PARTICLES = (
     "으로부터",
@@ -139,6 +122,7 @@ def extract_generic_keywords(technology: str) -> list[str]:
 
 
 def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: str) -> dict[str, str | float]:
+    concept_rules = rules.get_concept_rules()
     keywords = extract_generic_keywords(technology)
     if not keywords:
         return {
@@ -156,15 +140,15 @@ def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: st
     found = list(dict.fromkeys([*title_hits, *abstract_hits]))
     ipc_hits = ipc.detected_families(ipc_value)
 
-    points = len(title_hits) * GENERIC_TITLE_WEIGHT
-    points += len(abstract_hits) * GENERIC_ABSTRACT_WEIGHT
-    multi_bonus = GENERIC_MULTI_KEYWORD_BONUS if len(found) >= 2 else 0
+    points = len(title_hits) * concept_rules.generic_title_weight
+    points += len(abstract_hits) * concept_rules.generic_abstract_weight
+    multi_bonus = concept_rules.generic_multi_keyword_bonus if len(found) >= 2 else 0
     points += multi_bonus
-    points += len(ipc_hits) * GENERIC_IPC_WEIGHT
+    points += len(ipc_hits) * concept_rules.generic_ipc_weight
 
-    maximum = len(keywords) * (GENERIC_TITLE_WEIGHT + GENERIC_ABSTRACT_WEIGHT)
-    maximum += GENERIC_MULTI_KEYWORD_BONUS if len(keywords) >= 2 else 0
-    maximum += 2 * GENERIC_IPC_WEIGHT
+    maximum = len(keywords) * (concept_rules.generic_title_weight + concept_rules.generic_abstract_weight)
+    maximum += concept_rules.generic_multi_keyword_bonus if len(keywords) >= 2 else 0
+    maximum += 2 * concept_rules.generic_ipc_weight
     score = round(100 * points / maximum, 1) if maximum else 0.0
 
     reasons = []
@@ -173,7 +157,7 @@ def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: st
     if abstract_hits:
         reasons.append("초록 키워드: " + "·".join(abstract_hits))
     if multi_bonus:
-        reasons.append("복수 키워드 동시 발견 (+3점)")
+        reasons.append(f"복수 키워드 동시 발견 (+{multi_bonus}점)")
     if ipc_hits:
         reasons.append("IPC 보조 확인: " + "/".join(ipc_hits))
     if not reasons:
@@ -190,9 +174,11 @@ def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: st
 
 def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, str | float]:
     """Return score, priority, matched concepts, and a human-readable explanation."""
+    concept_rules = rules.get_concept_rules()
+    concept_groups = concept_rules.concept_groups
     target_concepts = {
         concept
-        for concept, phrases in CONCEPT_GROUPS.items()
+        for concept, phrases in concept_groups.items()
         if any(_has_phrase(technology, phrase) for phrase in phrases)
     }
     title = record.get("발명의 명칭", "") or ""
@@ -204,7 +190,7 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
 
     title_hits: set[str] = set()
     abstract_hits: set[str] = set()
-    for concept, phrases in CONCEPT_GROUPS.items():
+    for concept, phrases in concept_groups.items():
         if concept not in target_concepts:
             continue
         if any(_has_phrase(title, phrase) for phrase in phrases):
@@ -214,24 +200,25 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
 
     found_concepts = title_hits | abstract_hits
     detected_ipc = ipc.detected_families(ipc_value)
+    concept_family_map = rules.get_ipc_rules().concept_family_map
     ipc_hits = [
         code
-        for code in detected_ipc
-        if (code == "H01M" and "battery" in target_concepts) or (code == "B60L" and "vehicle" in target_concepts)
+        for concept, code in concept_family_map.items()
+        if concept in target_concepts and code in detected_ipc
     ]
 
-    score = sum(TITLE_WEIGHTS[c] for c in title_hits)
-    score += sum(ABSTRACT_WEIGHTS[c] for c in abstract_hits)
+    score = sum(concept_rules.title_weights[c] for c in title_hits)
+    score += sum(concept_rules.abstract_weights[c] for c in abstract_hits)
     has_battery = "battery" in found_concepts
     has_cooling = "cooling" in found_concepts
     has_vehicle = "vehicle" in found_concepts
     if has_battery and has_cooling:
-        score += CORE_BOTH_BONUS
+        score += concept_rules.core_both_bonus
     elif has_battery or has_cooling:
-        score += SINGLE_CORE_BONUS
+        score += concept_rules.single_core_bonus
     if has_vehicle:
-        score += VEHICLE_PRESENCE_BONUS
-    score += IPC_CODE_BONUS * len(ipc_hits)
+        score += concept_rules.vehicle_presence_bonus
+    score += concept_rules.ipc_code_bonus * len(ipc_hits)
     score = float(min(score, 100))
 
     concept_order = ("vehicle", "battery", "cooling")
