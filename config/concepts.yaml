@@ -22,7 +22,8 @@ bonuses:
   core_both: 65      # battery와 cooling을 모두 찾았을 때
   single_core: 25    # battery 또는 cooling 중 하나만 찾았을 때
   vehicle_presence: 5
-  ipc_code: 2         # 보조 신호 1건당(IPC 패밀리 일치)
+  ipc_code: 2         # 보조 신호 1건당(IPC 패밀리 일치, H01M/B60L 중 아무 서브그룹)
+  primary_ipc: 15      # 주 신호 1건당(확정된 세부 서브그룹, 예: H01M 10/60~10/667)
 
 # 사전 정의된 개념 그룹이 하나도 매칭되지 않을 때 쓰는 범용 키워드 분석 가중치.
 generic:
@@ -30,3 +31,15 @@ generic:
   abstract_weight: 2
   multi_keyword_bonus: 3
   ipc_weight: 1
+
+# 개념 방식·범용 키워드 방식은 점수 산출 로직이 달라 같은 임계값을 공유하지
+# 않는다(docs/DESIGN.md). 두 모드를 독립적으로 튜닝할 수 있도록 분리해뒀다.
+# 지금은 둘 다 시작값(70/40)을 쓰고 있고, 실제로 다른 값으로 벌리는 것은
+# 평가 세트 기준선 측정 이후의 일이다(docs/PIPELINE.md 단계 2 선행 조건).
+priority_thresholds:
+  concept_mode:
+    high_min: 70
+    medium_min: 40
+  generic_mode:
+    high_min: 70
+    medium_min: 40

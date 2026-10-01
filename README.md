@@ -2,7 +2,7 @@
 
 KIPRIS Plus의 실제 특허 데이터를 검색·점수화해 사람이 먼저 검토할 후보의 우선순위를 보여주고, 사람의 IP 조치 판단을 이유·전제와 함께 append-only로 기록하는 도구다. 가짜 특허 데이터를 생성하지 않으며, 최종 판단은 항상 사람이 한다. 전체 설계는 [docs/DESIGN.md](docs/DESIGN.md), 진행 단계는 [docs/PIPELINE.md](docs/PIPELINE.md), 확인이 필요한 외부 사실은 [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md)를 참고한다.
 
-이 저장소는 현재 **단계 1(데이터 모델)** 을 완료했고, **단계 2(수집·순위)** 중 다중 검색어·페이지네이션·출원번호 중복 제거, 개념 그룹·가중치·IPC 규칙 YAML 설정 분리, 화면 3단계(높음/중간/낮음) 표시까지 반영했다.
+이 저장소는 현재 **단계 1(데이터 모델)** 을 완료했고, **단계 2(수집·순위)** 의 코드 작업(다중 검색어·페이지네이션·출원번호 중복 제거, IPC 주 신호, 개념/IPC 규칙 YAML 분리, kiwipiepy 형태소 분석, 개념·범용 임계값 분리, 화면 3단계 표시, 출원번호 재조회)을 모두 반영했다. 평가 세트 20~50건 라벨링과 기준선 측정은 사람이 해야 하는 일이라 아직 남아 있다(docs/PIPELINE.md 단계 2 완료 기준).
 
 ## 설치와 실행
 
@@ -26,6 +26,12 @@ CLI로 직접 검색·CSV 저장을 하려면(검색어는 여러 개를 공백�
 python -m ipauto.cli search "battery" "cooling" --technology "전기차 배터리 냉각" --debug
 ```
 
+특정 출원번호를 다시 조회(전제 재확인/관심목록용)하려면:
+
+```powershell
+python -m ipauto.cli lookup "10-2020-1234567"
+```
+
 ## 환경 변수
 
 | 변수 | 필수 | 설명 |
@@ -45,12 +51,12 @@ config/
   ipc_rules.yaml      IPC 패밀리·개념-IPC 매핑 설정
 src/ipauto/
   config.py          환경변수 로드, 키 마스킹
-  connectors/kipris.py   KIPRIS 호출(fetch_all: 다중 검색어·페이지네이션)·XML 파싱(defusedxml)·오류 분류
-  scoring/           ipc.py, keywords.py, bands.py — 관련도 점수·구간, rules.py — config/*.yaml 로더
+  connectors/kipris.py   KIPRIS 호출(fetch_all: 다중 검색어·페이지네이션, fetch_by_application_number: 재조회)·XML 파싱(defusedxml)·오류 분류
+  scoring/           ipc.py(패밀리+주 신호), keywords.py(kiwipiepy 형태소 분석), bands.py — 관련도 점수·구간, rules.py — config/*.yaml 로더
   db/                schema.sql, connection.py, repositories.py — SQLite 저장소
   judgments/         service.py(게이트 B 검증), compare.py(집합 비교), migrate_json.py
   triage/ cards/ watch/   단계 3·4용 빈 인터페이스(아직 미구현)
-  cli.py             검색·마이그레이션 CLI 진입점
+  cli.py             검색·재조회·마이그레이션 CLI 진입점
 app/streamlit_app.py 검색 화면 + 게이트 B 판단 기록 폼
 tests/               단위 테스트 + fixtures/(모두 샘플 데이터, 실제 KIPRIS 응답·판단 기록 아님)
 ```
@@ -73,4 +79,6 @@ tests/               단위 테스트 + fixtures/(모두 샘플 데이터, 실�
 ## 알려진 한계
 
 - 마이그레이션된 옛 판단 행은 검토 기술·검색어·담당자·재검토 기한이 실제 값이 아니라 "이전 데이터" 표시이며, 결정값도 원래의 관련도 판단이 아니라 사람 재확인을 유도하는 "타사 특허 확인 필요"로 일괄 표시된다(원래 판단은 `legacy_note`에 보존).
+- `ipauto.cli lookup`/`fetch_by_application_number`는 출원번호 전용 조회 API가 아니라 자유검색(`word`)에 출원번호를 그대로 넣어 재조회한다. KIPRIS가 출원번호를 자유검색 색인에 포함하는지 확인되지 않아, 결과가 없다고 해서 출원이 존재하지 않는다고 단정할 수 없다(docs/OPEN_QUESTIONS.md).
+- 평가 세트가 없어 개념/범용 임계값(현재 둘 다 70/40)과 주 IPC 신호 보너스(15점) 등은 실제 평가 데이터로 튜닝되지 않은 시작값이다.
 - 사건 감지·트리아지·판단 카드·전제 감시·Jira 연동은 아직 없다(단계 3~5).

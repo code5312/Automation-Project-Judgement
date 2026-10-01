@@ -17,6 +17,8 @@ from ipauto.connectors.kipris import (
     KiprisResponseError,
     dedupe_by_application_number,
     fetch_all,
+    fetch_by_application_number,
+    normalize_application_number,
     parse_response,
     raise_if_unsuccessful,
 )
@@ -145,3 +147,45 @@ def test_fetch_all_respects_max_pages_per_query(monkeypatch):
 def test_fetch_all_requires_at_least_one_query():
     with pytest.raises(ValueError):
         fetch_all([], "key")
+
+
+def test_normalize_application_number_ignores_dashes_and_spaces():
+    assert normalize_application_number("10-2020-1234567") == normalize_application_number("10 2020 1234567")
+    assert normalize_application_number("10-2020-1234567") == "1020201234567"
+
+
+def test_fetch_by_application_number_returns_matching_record(monkeypatch):
+    target = _record("10-2020-1234567", "정확히 일치")
+    other = _record("10-2020-9999999", "다른 출원")
+
+    def fake_fetch_page(query, access_key, count=20, start=1):
+        assert query == "10-2020-1234567"
+        return _page([other, target])
+
+    monkeypatch.setattr(kipris, "fetch_page", fake_fetch_page)
+
+    record = fetch_by_application_number("10-2020-1234567", "key")
+
+    assert record is target
+
+
+def test_fetch_by_application_number_matches_despite_dash_formatting(monkeypatch):
+    target = _record("1020201234567")  # KIPRIS sometimes omits dashes
+
+    def fake_fetch_page(query, access_key, count=20, start=1):
+        return _page([target])
+
+    monkeypatch.setattr(kipris, "fetch_page", fake_fetch_page)
+
+    record = fetch_by_application_number("10-2020-1234567", "key")
+
+    assert record is target
+
+
+def test_fetch_by_application_number_returns_none_when_no_match(monkeypatch):
+    def fake_fetch_page(query, access_key, count=20, start=1):
+        return _page([_record("10-2020-9999999")])
+
+    monkeypatch.setattr(kipris, "fetch_page", fake_fetch_page)
+
+    assert fetch_by_application_number("10-2020-1234567", "key") is None

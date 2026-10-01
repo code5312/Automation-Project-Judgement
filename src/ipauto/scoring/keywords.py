@@ -3,15 +3,18 @@
 This is a direct, Korean-readable port of the prototype's scoring logic
 (previously in ``main.py`` with ``\\uXXXX``-escaped literals). Concept
 groups, weights, and bonuses are loaded from ``config/concepts.yaml`` via
-``ipauto.scoring.rules`` (docs/PIPELINE.md 단계 2); the particle/ending
-suffix lists below are still module constants — swapping the suffix
-stripping for a real morphological analyzer (kiwipiepy) is separate 단계 2
-work.
+``ipauto.scoring.rules`` (docs/PIPELINE.md 단계 2).
+
+``extract_generic_keywords`` uses kiwipiepy for real morphological analysis
+instead of stripping a fixed list of particle/ending suffixes by regex — a
+suffix like "은/는/이/가" or "하여/하고" is just whatever the analyzer leaves
+after splitting off its own NNG/NNP/SL-tagged content morphemes, not a
+pattern matched in code.
 """
 
 from __future__ import annotations
 
-import re
+from kiwipiepy import Kiwi
 
 from ipauto.scoring import bands, ipc, rules
 
@@ -28,53 +31,6 @@ GENERIC_FALLBACK_MESSAGE = (
     "사전 정의된 기술 개념 그룹이 없어 입력된 평가 기술어를 기반으로 범용 키워드 분석을 수행했습니다."
 )
 
-KOREAN_PARTICLES = (
-    "으로부터",
-    "에게서",
-    "에서는",
-    "으로",
-    "에게",
-    "한테",
-    "부터",
-    "까지",
-    "처럼",
-    "보다",
-    "이랑",
-    "하고",
-    "이나",
-    "라도",
-    "마저",
-    "조차",
-    "은",
-    "는",
-    "이",
-    "가",
-    "을",
-    "를",
-    "의",
-    "에",
-    "로",
-    "와",
-    "과",
-    "도",
-    "만",
-    "랑",
-    "께",
-)
-KOREAN_VERB_ENDINGS = (
-    "하여서",
-    "하면서",
-    "하는",
-    "하기",
-    "하며",
-    "하고",
-    "한다",
-    "된다",
-    "되는",
-    "되고",
-    "하여",
-    "함",
-)
 GENERIC_STOPWORDS = {
     "기술",
     "방법",
@@ -96,6 +52,16 @@ GENERIC_STOPWORDS = {
     "여러",
 }
 
+# Content-bearing part-of-speech tags to keep: common/proper nouns and
+# foreign-script tokens (e.g. English terms written in Latin letters).
+# Particles, verb/adjective endings, numerals, and symbols are dropped by
+# virtue of not being in this set.
+_CONTENT_POS_TAGS = frozenset({"NNG", "NNP", "SL"})
+
+# Loading the morphological model takes real time, so load it once per
+# process instead of per call.
+_KIWI = Kiwi()
+
 
 def _has_phrase(text: str, phrase: str) -> bool:
     """Match a listed concept phrase literally; no fuzzy/partial-character matching."""
@@ -103,18 +69,13 @@ def _has_phrase(text: str, phrase: str) -> bool:
 
 
 def extract_generic_keywords(technology: str) -> list[str]:
-    """Extract distinct, useful literal terms when no configured group applies."""
-    raw_terms = re.findall(r"[\w]+", technology.casefold(), flags=re.UNICODE)
+    """Extract distinct, useful terms when no configured group applies."""
     keywords: list[str] = []
-    for raw in raw_terms:
-        term = raw
-        for suffix in (*KOREAN_VERB_ENDINGS, *KOREAN_PARTICLES):
-            if term.endswith(suffix) and len(term) - len(suffix) >= 2:
-                term = term[: -len(suffix)]
-                break
-        if len(term) < 2 or term in GENERIC_STOPWORDS:
+    for token in _KIWI.tokenize(technology):
+        if token.tag not in _CONTENT_POS_TAGS:
             continue
-        if not re.search(r"[A-Za-z가-힣]", term, flags=re.UNICODE):
+        term = token.form.casefold()
+        if len(term) < 2 or term in GENERIC_STOPWORDS:
             continue
         if term not in keywords:
             keywords.append(term)
@@ -127,7 +88,9 @@ def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: st
     if not keywords:
         return {
             SCORE_FIELD: 0.0,
-            PRIORITY_FIELD: bands.classify(0, bands.GENERIC_PRIORITY_HIGH_MIN, bands.GENERIC_PRIORITY_MEDIUM_MIN),
+            PRIORITY_FIELD: bands.classify(
+                0, concept_rules.generic_priority_high_min, concept_rules.generic_priority_medium_min
+            ),
             MATCHED_FIELD: "",
             REASON_FIELD: "의미 있는 키워드를 추출하지 못해 0점 처리",
             ANALYSIS_MODE_FIELD: MODE_GENERIC_KEYWORD,
@@ -165,7 +128,9 @@ def _generic_relevance(technology: str, title: str, abstract: str, ipc_value: st
 
     return {
         SCORE_FIELD: score,
-        PRIORITY_FIELD: bands.classify(score, bands.GENERIC_PRIORITY_HIGH_MIN, bands.GENERIC_PRIORITY_MEDIUM_MIN),
+        PRIORITY_FIELD: bands.classify(
+            score, concept_rules.generic_priority_high_min, concept_rules.generic_priority_medium_min
+        ),
         MATCHED_FIELD: ";".join(found),
         REASON_FIELD: ", ".join(reasons),
         ANALYSIS_MODE_FIELD: MODE_GENERIC_KEYWORD,
@@ -206,6 +171,9 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
         for concept, code in concept_family_map.items()
         if concept in target_concepts and code in detected_ipc
     ]
+    primary_hits = [
+        code for code, concept in ipc.detected_primary_signals(ipc_value) if concept in target_concepts
+    ]
 
     score = sum(concept_rules.title_weights[c] for c in title_hits)
     score += sum(concept_rules.abstract_weights[c] for c in abstract_hits)
@@ -219,11 +187,13 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
     if has_vehicle:
         score += concept_rules.vehicle_presence_bonus
     score += concept_rules.ipc_code_bonus * len(ipc_hits)
+    score += concept_rules.primary_ipc_bonus * len(primary_hits)
     score = float(min(score, 100))
 
     concept_order = ("vehicle", "battery", "cooling")
     matched = [concept for concept in concept_order if concept in found_concepts]
     matched.extend(f"IPC:{code}" for code in ipc_hits)
+    matched.extend(f"IPC-주신호:{code}" for code in primary_hits)
 
     concept_names = {"vehicle": "차량", "battery": "배터리", "cooling": "냉각"}
     reasons = []
@@ -243,12 +213,16 @@ def calculate_relevance(technology: str, record: dict[str, str]) -> dict[str, st
         reasons.append("초록에서 " + "·".join(abstract_names) + " 발견")
     if ipc_hits:
         reasons.append("/".join(ipc_hits) + " IPC 확인")
+    if primary_hits:
+        reasons.append("IPC 세부분류로 정밀 확인: " + "/".join(primary_hits))
     if not reasons:
         reasons.append("평가 개념을 제목·초록·IPC에서 찾지 못함")
 
     return {
         SCORE_FIELD: score,
-        PRIORITY_FIELD: bands.classify(score, bands.CONCEPT_PRIORITY_HIGH_MIN, bands.CONCEPT_PRIORITY_MEDIUM_MIN),
+        PRIORITY_FIELD: bands.classify(
+            score, concept_rules.concept_priority_high_min, concept_rules.concept_priority_medium_min
+        ),
         MATCHED_FIELD: ";".join(matched),
         REASON_FIELD: ", ".join(reasons),
         ANALYSIS_MODE_FIELD: MODE_CONCEPT_GROUP,

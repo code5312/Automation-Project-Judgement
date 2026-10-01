@@ -9,6 +9,9 @@ confused: the former raises, the latter returns an empty list.
 ``fetch_page`` fetches a single page. ``fetch_all`` (단계 2) fans a search out
 over multiple query terms, paginates each one until KIPRIS returns a short
 page, and dedupes the combined records by 출원번호.
+``fetch_by_application_number`` (단계 2) re-queries a single known
+application number for premise reconfirmation/관심목록 use (단계 4 선행
+작업); see its docstring for why a match isn't guaranteed.
 """
 
 from __future__ import annotations
@@ -263,3 +266,32 @@ def raise_if_unsuccessful(page: KiprisPage, access_key: str | None = None) -> No
     if page.success_yn and page.success_yn.upper() != "Y":
         message = mask_secret(page.result_msg or "KIPRIS reported an unsuccessful call.", access_key)
         raise KiprisResponseError(message)
+
+
+def normalize_application_number(value: str) -> str:
+    """Strip spaces/dashes so "10-2020-1234567" and "1020201234567" compare equal."""
+    return "".join(ch for ch in value if ch.isalnum())
+
+
+def fetch_by_application_number(application_number: str, access_key: str) -> KiprisRecord | None:
+    """Re-query KIPRIS for one application number (premise reconfirmation/관심목록).
+
+    KIPRIS Plus's freeSearchInfo only exposes a free-text ``word`` search in
+    this connector — whether a dedicated by-application-number parameter
+    exists is unconfirmed (docs/OPEN_QUESTIONS.md). This searches using the
+    application number itself as the query term and returns the first
+    record whose 출원번호 matches exactly after normalizing dashes/spaces.
+
+    Returns None when nothing matches, which is inconclusive rather than a
+    confirmed "not found": the free-text index may not key on this field for
+    every application. Callers doing premise reconfirmation should treat
+    None as "could not reconfirm," not as "the application no longer
+    exists," and raises the same typed KiprisError as fetch_page on a
+    failing call.
+    """
+    target = normalize_application_number(application_number)
+    page = fetch_page(application_number, access_key, count=MAX_COUNT)
+    for record in page.records:
+        if normalize_application_number(record.get("출원번호")) == target:
+            return record
+    return None

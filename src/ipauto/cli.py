@@ -17,7 +17,13 @@ from datetime import datetime
 from pathlib import Path
 
 from ipauto.config import get_kipris_access_key, mask_secret
-from ipauto.connectors.kipris import DEFAULT_MAX_PAGES_PER_QUERY, FIELDS, KiprisError, fetch_all
+from ipauto.connectors.kipris import (
+    DEFAULT_MAX_PAGES_PER_QUERY,
+    FIELDS,
+    KiprisError,
+    fetch_all,
+    fetch_by_application_number,
+)
 from ipauto.scoring.keywords import (
     ANALYSIS_MODE_FIELD,
     MATCHED_FIELD,
@@ -107,12 +113,43 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--debug", action="store_true", help="Print HTTP/XML diagnostics; access key is redacted")
     search.set_defaults(func=_run_search)
 
+    lookup = subparsers.add_parser(
+        "lookup", help="Re-query KIPRIS for one application number (premise reconfirmation/관심목록)"
+    )
+    lookup.add_argument("application_number", help="예: 10-2020-1234567")
+    lookup.set_defaults(func=_run_lookup)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
     migrate.set_defaults(func=_run_migrate_judgments)
 
     return parser
+
+
+def _run_lookup(args: argparse.Namespace) -> int:
+    access_key = get_kipris_access_key()
+    if not access_key:
+        print("Error: KIPRIS_ACCESS_KEY environment variable is not set.", file=sys.stderr)
+        return 1
+
+    try:
+        record = fetch_by_application_number(args.application_number, access_key)
+    except KiprisError as exc:
+        print(f"Error: {mask_secret(str(exc), access_key)}", file=sys.stderr)
+        return 1
+
+    if record is None:
+        print(
+            "KIPRIS 재검색에서 이 출원번호를 다시 찾지 못했습니다. "
+            "자유검색 색인이 출원번호를 포함하지 않을 수 있어 이 결과만으로 '존재하지 않음'을 단정할 수 없습니다.",
+            file=sys.stderr,
+        )
+        return 1
+
+    for label in FIELDS:
+        print(f"{label}: {record.get(label) or '-'}")
+    return 0
 
 
 def _run_migrate_judgments(_args: argparse.Namespace) -> int:

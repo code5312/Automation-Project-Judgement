@@ -20,6 +20,9 @@ def test_get_concept_rules_loads_repo_yaml():
     assert concept_rules.title_weights["cooling"] == 6
     assert concept_rules.core_both_bonus == 65
     assert concept_rules.generic_multi_keyword_bonus == 3
+    assert concept_rules.primary_ipc_bonus == 15
+    assert concept_rules.concept_priority_high_min == 70
+    assert concept_rules.generic_priority_medium_min == 40
 
 
 def test_get_ipc_rules_loads_repo_yaml():
@@ -42,11 +45,19 @@ def test_config_dir_env_override_is_respected(tmp_path, monkeypatch):
         "  single_core: 1\n"
         "  vehicle_presence: 1\n"
         "  ipc_code: 1\n"
+        "  primary_ipc: 1\n"
         "generic:\n"
         "  title_weight: 1\n"
         "  abstract_weight: 1\n"
         "  multi_keyword_bonus: 1\n"
-        "  ipc_weight: 1\n",
+        "  ipc_weight: 1\n"
+        "priority_thresholds:\n"
+        "  concept_mode:\n"
+        "    high_min: 50\n"
+        "    medium_min: 20\n"
+        "  generic_mode:\n"
+        "    high_min: 60\n"
+        "    medium_min: 30\n",
         encoding="utf-8",
     )
     (tmp_path / "ipc_rules.yaml").write_text(
@@ -56,7 +67,10 @@ def test_config_dir_env_override_is_respected(tmp_path, monkeypatch):
     rules.clear_cache()
     try:
         assert rules._config_dir() == tmp_path
-        assert rules.get_concept_rules().title_weights == {"widget": 9}
+        concept_rules = rules.get_concept_rules()
+        assert concept_rules.title_weights == {"widget": 9}
+        assert concept_rules.concept_priority_high_min == 50
+        assert concept_rules.generic_priority_high_min == 60
         assert rules.get_ipc_rules().families == ("X99",)
     finally:
         rules.clear_cache()
