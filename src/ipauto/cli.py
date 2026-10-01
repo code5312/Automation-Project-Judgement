@@ -119,6 +119,17 @@ def build_parser() -> argparse.ArgumentParser:
     lookup.add_argument("application_number", help="예: 10-2020-1234567")
     lookup.set_defaults(func=_run_lookup)
 
+    evaluate = subparsers.add_parser(
+        "evaluate", help="Measure scoring accuracy against a labeled evaluation set (docs/PIPELINE.md 단계 2)"
+    )
+    evaluate.add_argument(
+        "eval_set_path",
+        nargs="?",
+        default=str(Path(__file__).resolve().parents[2] / "data" / "eval" / "ev_battery_cooling_v1.json"),
+        help="평가 세트 JSON 경로 (기본값: data/eval/ev_battery_cooling_v1.json)",
+    )
+    evaluate.set_defaults(func=_run_evaluate)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -152,6 +163,32 @@ def _run_lookup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_evaluate(args: argparse.Namespace) -> int:
+    from ipauto.evaluation import load_eval_set, measure_accuracy
+
+    path = Path(args.eval_set_path)
+    if not path.exists():
+        print(f"Error: evaluation set not found: {path}", file=sys.stderr)
+        return 1
+
+    items = load_eval_set(path)
+    result = measure_accuracy(items)
+
+    print(f"평가 세트: {path} ({result.total}건)")
+    print(f"정확도: {result.correct}/{result.total} ({result.accuracy:.1%})")
+    print("\n혼동행렬 (사람 라벨 -> 시스템 예측):")
+    for (human, predicted), count in sorted(result.confusion.items()):
+        marker = "" if human == predicted else "  <- 불일치"
+        print(f"  {human} -> {predicted}: {count}건{marker}")
+
+    if result.mismatches:
+        print(f"\n불일치 사례 ({len(result.mismatches)}건):")
+        for item, predicted in result.mismatches:
+            print(f"  [{item.application_number}] {item.title}")
+            print(f"    사람: {item.human_label} / 시스템: {predicted} (사람 근거: {item.rationale})")
+    return 0
+
+
 def _run_migrate_judgments(_args: argparse.Namespace) -> int:
     from ipauto.judgments.migrate_json import main as migrate_main
 
@@ -159,6 +196,15 @@ def _run_migrate_judgments(_args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Korean text printed here (titles, abstracts, rationale notes) isn't
+    # guaranteed to be representable in the legacy cp949 codepage that
+    # Windows consoles default stdout/stderr to; force UTF-8 so an
+    # unrepresentable character (e.g. an em dash) doesn't crash the CLI
+    # mid-run instead of just printing correctly or, worst case, mangled.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
