@@ -81,10 +81,9 @@ def _render_record_card(
     priority = str(record.get(PRIORITY_FIELD) or "")
 
     with st.container(border=True):
-        rank_col, title_col, score_col, priority_col = st.columns([0.55, 4.0, 1.0, 1.6])
+        rank_col, title_col, priority_col = st.columns([0.55, 5.0, 1.6])
         rank_col.markdown(f"**#{rank}**")
         title_col.markdown(f"**{title}**")
-        score_col.metric("관련도", f"{record.get(SCORE_FIELD, 0)}/100")
         priority_col.markdown(f"**{_priority_badge(priority)}**")
 
         applicant_col, application_col, status_col = st.columns([2, 1.5, 1])
