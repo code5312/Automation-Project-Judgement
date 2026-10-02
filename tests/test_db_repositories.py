@@ -8,14 +8,20 @@ import pytest
 
 from ipauto.db.connection import init_db
 from ipauto.db.repositories import (
+    ASSET_KIND_EXTERNAL,
+    ASSET_KIND_OWN,
+    IpAssetInput,
     JudgmentInput,
     PremiseInput,
     count_judgments,
+    fetch_ip_asset,
+    fetch_ip_assets,
     fetch_judgments_for_application,
     fetch_latest_judgment,
     fetch_premises_for_judgment,
     find_migrated_judgment,
 )
+from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 from ipauto.db.repositories import save_judgment as insert_judgment
 
 
@@ -104,3 +110,51 @@ def test_find_migrated_judgment_matches_on_app_number_and_created_at(conn):
     found = find_migrated_judgment(conn, "SAMPLE-0000001", "2026-01-01T00:00:00Z")
     assert found is not None
     assert find_migrated_judgment(conn, "SAMPLE-0000001", "2099-01-01T00:00:00Z") is None
+
+
+def _sample_ip_asset(**overrides) -> IpAssetInput:
+    defaults = dict(
+        application_number="SAMPLE-ASSET-0000001",
+        asset_kind=ASSET_KIND_OWN,
+        title="샘플 배터리 팩",
+        applicant="샘플 주식회사",
+        ipc_codes="H01M 10/613",
+        legal_status="공개(샘플)",
+    )
+    defaults.update(overrides)
+    return IpAssetInput(**defaults)
+
+
+def test_save_ip_asset_inserts_new_row(conn):
+    asset_id = insert_ip_asset(conn, _sample_ip_asset())
+
+    row = fetch_ip_asset(conn, "SAMPLE-ASSET-0000001")
+    assert row["id"] == asset_id
+    assert row["asset_kind"] == ASSET_KIND_OWN
+    assert row["title"] == "샘플 배터리 팩"
+
+
+def test_save_ip_asset_upserts_same_application_number(conn):
+    first_id = insert_ip_asset(conn, _sample_ip_asset())
+    second_id = insert_ip_asset(conn, _sample_ip_asset(title="갱신된 제목", legal_status="등록(샘플)"))
+
+    assert first_id == second_id
+    row = fetch_ip_asset(conn, "SAMPLE-ASSET-0000001")
+    assert row["title"] == "갱신된 제목"
+    assert row["legal_status"] == "등록(샘플)"
+    assert conn.execute("SELECT COUNT(*) AS n FROM ip_asset").fetchone()["n"] == 1
+
+
+def test_save_ip_asset_rejects_invalid_asset_kind(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_ip_asset(conn, _sample_ip_asset(asset_kind="알 수 없음"))
+
+
+def test_fetch_ip_assets_filters_by_kind(conn):
+    insert_ip_asset(conn, _sample_ip_asset())
+    insert_ip_asset(conn, _sample_ip_asset(application_number="SAMPLE-ASSET-0000002", asset_kind=ASSET_KIND_EXTERNAL))
+
+    assert len(fetch_ip_assets(conn)) == 2
+    assert [row["application_number"] for row in fetch_ip_assets(conn, asset_kind=ASSET_KIND_OWN)] == [
+        "SAMPLE-ASSET-0000001"
+    ]

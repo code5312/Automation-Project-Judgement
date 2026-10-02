@@ -1,7 +1,10 @@
-"""Append-only read/write access to the judgment ledger.
+"""Read/write access to the judgment ledger and IP asset portfolio.
 
-No function here issues UPDATE or DELETE against ``judgment`` or ``premise``:
-a correction is always a new Judgment row chained via ``previous_judgment_id``.
+``judgment``/``premise`` are append-only: no function here issues UPDATE or
+DELETE against them, a correction is always a new Judgment row chained via
+``previous_judgment_id``. ``ip_asset`` (단계 3) is different — it is a
+re-fetchable cache of KIPRIS attributes, so ``save_ip_asset`` is a normal
+upsert keyed by application_number.
 """
 
 from __future__ import annotations
@@ -18,6 +21,10 @@ DECISION_CHOICES = (
     "정리 검토",
     "타사 특허 확인 필요",
 )
+
+ASSET_KIND_OWN = "자사"
+ASSET_KIND_EXTERNAL = "외부"
+ASSET_KIND_CHOICES = (ASSET_KIND_OWN, ASSET_KIND_EXTERNAL)
 
 
 @dataclass(frozen=True)
@@ -164,3 +171,67 @@ def save_judgment(conn: sqlite3.Connection, data: JudgmentInput) -> int:
                 (judgment_id, premise.source, premise.check_key, premise.expected_value, premise.check_method),
             )
     return judgment_id
+
+
+@dataclass(frozen=True)
+class IpAssetInput:
+    application_number: str
+    asset_kind: str
+    title: str | None = None
+    applicant: str | None = None
+    ipc_codes: str | None = None
+    legal_status: str | None = None
+    source_url: str | None = None
+    last_fetched_at: str | None = None
+
+
+def save_ip_asset(conn: sqlite3.Connection, data: IpAssetInput) -> int:
+    """Upsert one IPAsset keyed by application_number.
+
+    Unlike Judgment/Premise, IPAsset is a re-fetchable cache of KIPRIS
+    attributes (docs/DESIGN.md), not an append-only ledger, so re-ingesting
+    the same application number updates the row in place instead of
+    chaining a new one.
+    """
+    with transaction(conn):
+        conn.execute(
+            """
+            INSERT INTO ip_asset
+                (application_number, asset_kind, title, applicant, ipc_codes, legal_status, source_url, last_fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (application_number) DO UPDATE SET
+                asset_kind = excluded.asset_kind,
+                title = excluded.title,
+                applicant = excluded.applicant,
+                ipc_codes = excluded.ipc_codes,
+                legal_status = excluded.legal_status,
+                source_url = excluded.source_url,
+                last_fetched_at = excluded.last_fetched_at
+            """,
+            (
+                data.application_number,
+                data.asset_kind,
+                data.title,
+                data.applicant,
+                data.ipc_codes,
+                data.legal_status,
+                data.source_url,
+                data.last_fetched_at,
+            ),
+        )
+        row = conn.execute(
+            "SELECT id FROM ip_asset WHERE application_number = ?", (data.application_number,)
+        ).fetchone()
+    return row["id"]
+
+
+def fetch_ip_asset(conn: sqlite3.Connection, application_number: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM ip_asset WHERE application_number = ?", (application_number,)).fetchone()
+
+
+def fetch_ip_assets(conn: sqlite3.Connection, asset_kind: str | None = None) -> list[sqlite3.Row]:
+    if asset_kind is None:
+        return conn.execute("SELECT * FROM ip_asset ORDER BY application_number").fetchall()
+    return conn.execute(
+        "SELECT * FROM ip_asset WHERE asset_kind = ? ORDER BY application_number", (asset_kind,)
+    ).fetchall()

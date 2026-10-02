@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from ipauto.connectors.kipris import (
     fetch_all,
     fetch_by_application_number,
 )
+from ipauto.db.repositories import ASSET_KIND_CHOICES, ASSET_KIND_OWN
 from ipauto.scoring.keywords import (
     ANALYSIS_MODE_FIELD,
     MATCHED_FIELD,
@@ -130,6 +132,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.set_defaults(func=_run_evaluate)
 
+    portfolio = subparsers.add_parser(
+        "portfolio-load", help="Load KIPRIS-shaped records (JSON) into the ip_asset portfolio table (단계 3)"
+    )
+    portfolio.add_argument("records_path", help="출원번호·명칭 등 KIPRIS 필드를 담은 JSON 배열 파일")
+    portfolio.add_argument(
+        "--asset-kind", default=ASSET_KIND_OWN, choices=ASSET_KIND_CHOICES, help="자사 또는 외부 (기본값: 자사)"
+    )
+    portfolio.set_defaults(func=_run_portfolio_load)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -186,6 +197,28 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         for item, predicted in result.mismatches:
             print(f"  [{item.application_number}] {item.title}")
             print(f"    사람: {item.human_label} / 시스템: {predicted} (사람 근거: {item.rationale})")
+    return 0
+
+
+def _run_portfolio_load(args: argparse.Namespace) -> int:
+    from ipauto.db.connection import connect, init_db
+    from ipauto.portfolio import ingest_records
+
+    path = Path(args.records_path)
+    if not path.exists():
+        print(f"Error: records file not found: {path}", file=sys.stderr)
+        return 1
+
+    records = json.loads(path.read_text(encoding="utf-8"))
+    conn = connect()
+    init_db(conn)
+    try:
+        ids = ingest_records(conn, records, asset_kind=args.asset_kind)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"{path}에서 {len(ids)}건을 ip_asset({args.asset_kind})에 적재했습니다.")
     return 0
 
 
