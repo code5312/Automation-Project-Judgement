@@ -171,6 +171,14 @@ def build_parser() -> argparse.ArgumentParser:
     classify_parser.add_argument("ip_asset_id", type=int)
     classify_parser.set_defaults(func=_run_classify_link)
 
+    triage_parser = subparsers.add_parser(
+        "triage",
+        help="Route one Event/IPAsset pair to 무관/관련/애매 (단계 3; uses the LLM signal if ANTHROPIC_API_KEY is set)",
+    )
+    triage_parser.add_argument("event_id", type=int)
+    triage_parser.add_argument("ip_asset_id", type=int)
+    triage_parser.set_defaults(func=_run_triage)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -337,6 +345,57 @@ def _run_classify_link(args: argparse.Namespace) -> int:
     print(f"confidence: {result.confidence}")
     print(f"evidence: {result.evidence}")
     print(f"missing_info: {result.missing_info}")
+    return 0
+
+
+def _run_triage(args: argparse.Namespace) -> int:
+    from ipauto.connectors.llm import LLMError
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
+    from ipauto.triage.llm_classifier import ClassificationFormatError, classify
+    from ipauto.triage.routing import decide_triage
+
+    conn = connect()
+    init_db(conn)
+    event = fetch_event(conn, args.event_id)
+    if event is None:
+        print(f"Error: event id {args.event_id} not found.", file=sys.stderr)
+        return 1
+    asset = fetch_ip_asset_by_id(conn, args.ip_asset_id)
+    if asset is None:
+        print(f"Error: ip_asset id {args.ip_asset_id} not found.", file=sys.stderr)
+        return 1
+
+    llm_result = None
+    api_key = get_llm_api_key()
+    fallback_note = "키워드/IPC 신호만으로 라우팅합니다"
+    if api_key:
+        event_summary = event["summary"] or ""
+        asset_title = asset["title"] or ""
+        asset_ipc = asset["ipc_codes"] or ""
+        try:
+            llm_result = classify(event_summary, asset_title, asset_ipc, api_key=api_key)
+        except LLMError as exc:
+            print(f"[경고] LLM 호출 실패, {fallback_note}: {mask_secret(str(exc), api_key)}", file=sys.stderr)
+        except ClassificationFormatError as exc:
+            print(f"[경고] LLM 응답 형식 오류, {fallback_note}: {exc}", file=sys.stderr)
+    else:
+        print(f"[안내] ANTHROPIC_API_KEY가 없어 {fallback_note}.", file=sys.stderr)
+
+    decision = decide_triage(
+        conn,
+        event_type=event["event_type"],
+        event_summary=event["summary"] or "",
+        event_occurred_at=event["occurred_at"],
+        asset_title=asset["title"] or "",
+        asset_ipc=asset["ipc_codes"] or "",
+        application_number=asset["application_number"],
+        llm_result=llm_result,
+    )
+
+    print(f"outcome: {decision.outcome}")
+    for reason in decision.reasons:
+        print(f"  - {reason}")
     return 0
 
 
