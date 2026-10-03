@@ -10,17 +10,24 @@ from ipauto.db.connection import init_db
 from ipauto.db.repositories import (
     ASSET_KIND_EXTERNAL,
     ASSET_KIND_OWN,
+    AUDIT_STATUS_CONFIRMED,
+    AUDIT_STATUS_MISSED,
     EVENT_STATUS_TRIAGED,
     LINK_BASIS_IPC_MATCH,
     LINK_OBJECT_EVENT,
     LINK_OBJECT_IP_ASSET,
+    AutoCloseLogInput,
     EventInput,
     IpAssetInput,
     JudgmentInput,
     LinkInput,
     PremiseInput,
+    auto_close_miss_rate,
     confirm_link,
     count_judgments,
+    fetch_audit_queue,
+    fetch_auto_close_log_for_pair,
+    fetch_auto_close_logs,
     fetch_event_by_source_ref,
     fetch_events,
     fetch_ip_asset,
@@ -33,7 +40,10 @@ from ipauto.db.repositories import (
     fetch_premises_for_judgment,
     find_link,
     find_migrated_judgment,
+    record_audit_result,
+    select_audit_sample,
 )
+from ipauto.db.repositories import log_auto_close as insert_auto_close_log
 from ipauto.db.repositories import save_event as insert_event
 from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 from ipauto.db.repositories import save_judgment as insert_judgment
@@ -280,3 +290,115 @@ def test_confirm_link_sets_flag(conn):
 def test_confirm_link_rejects_unknown_id(conn):
     with pytest.raises(ValueError):
         confirm_link(conn, 999999)
+
+
+def _seed_event_and_asset(conn, source_ref: str = "SAMPLE-RELEASE-1", application_number: str = "SAMPLE-ASSET-0000001"):
+    event_id, _ = insert_event(conn, _sample_event(source_ref=source_ref))
+    asset_id = insert_ip_asset(conn, _sample_ip_asset(application_number=application_number))
+    return event_id, asset_id
+
+
+def test_log_auto_close_inserts_new_row(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+
+    log_id, created = insert_auto_close_log(
+        conn,
+        AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 낮음"),
+    )
+
+    assert created is True
+    row = fetch_auto_close_log_for_pair(conn, event_id, asset_id)
+    assert row["id"] == log_id
+    assert row["audit_status"] == "대기"
+    assert row["sampled_for_audit"] == 0
+
+
+def test_log_auto_close_is_deduped_by_event_and_asset(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    data = AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 낮음")
+
+    first_id, first_created = insert_auto_close_log(conn, data)
+    second_id, second_created = insert_auto_close_log(conn, data)
+
+    assert first_created is True
+    assert second_created is False
+    assert first_id == second_id
+    assert conn.execute("SELECT COUNT(*) AS n FROM auto_close_log").fetchone()["n"] == 1
+
+
+def test_fetch_auto_close_logs_filters_by_audit_status(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    log_id, _ = insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 낮음")
+    )
+    record_audit_result(conn, log_id, AUDIT_STATUS_CONFIRMED)
+
+    assert len(fetch_auto_close_logs(conn)) == 1
+    assert len(fetch_auto_close_logs(conn, audit_status=AUDIT_STATUS_CONFIRMED)) == 1
+    assert len(fetch_auto_close_logs(conn, audit_status="대기")) == 0
+
+
+def test_select_audit_sample_marks_rows_sampled_and_does_not_resample(conn):
+    event_id, asset_a = _seed_event_and_asset(conn, application_number="SAMPLE-ASSET-0000001")
+    _, asset_b = _seed_event_and_asset(conn, source_ref="SAMPLE-RELEASE-2", application_number="SAMPLE-ASSET-0000002")
+    insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_a, keyword_priority="검토 우선순위 낮음")
+    )
+    insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_b, keyword_priority="검토 우선순위 낮음")
+    )
+
+    first_sample = select_audit_sample(conn, sample_size=10)
+    assert len(first_sample) == 2
+    assert all(row["sampled_for_audit"] == 1 for row in first_sample)
+
+    second_sample = select_audit_sample(conn, sample_size=10)
+    assert second_sample == []  # nothing left un-sampled
+
+
+def test_fetch_audit_queue_only_returns_pending_sampled_rows(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    log_id, _ = insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 낮음")
+    )
+
+    assert fetch_audit_queue(conn) == []  # not sampled yet
+
+    select_audit_sample(conn, sample_size=10)
+    assert len(fetch_audit_queue(conn)) == 1
+
+    record_audit_result(conn, log_id, AUDIT_STATUS_CONFIRMED)
+    assert fetch_audit_queue(conn) == []  # resolved, no longer pending
+
+
+def test_record_audit_result_rejects_unknown_id(conn):
+    with pytest.raises(ValueError):
+        record_audit_result(conn, 999999, AUDIT_STATUS_CONFIRMED)
+
+
+def test_auto_close_miss_rate_is_none_before_any_audit(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 낮음")
+    )
+
+    assert auto_close_miss_rate(conn) is None
+
+
+def test_auto_close_miss_rate_counts_only_audited_rows(conn):
+    event_id, asset_a = _seed_event_and_asset(conn, application_number="SAMPLE-ASSET-0000001")
+    _, asset_b = _seed_event_and_asset(conn, source_ref="SAMPLE-RELEASE-2", application_number="SAMPLE-ASSET-0000002")
+    _, asset_c = _seed_event_and_asset(conn, source_ref="SAMPLE-RELEASE-3", application_number="SAMPLE-ASSET-0000003")
+    log_a, _ = insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_a, keyword_priority="검토 우선순위 낮음")
+    )
+    log_b, _ = insert_auto_close_log(
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_b, keyword_priority="검토 우선순위 낮음")
+    )
+    insert_auto_close_log(  # left un-audited (대기) — must not count in the denominator
+        conn, AutoCloseLogInput(event_id=event_id, ip_asset_id=asset_c, keyword_priority="검토 우선순위 낮음")
+    )
+    record_audit_result(conn, log_a, AUDIT_STATUS_CONFIRMED)
+    record_audit_result(conn, log_b, AUDIT_STATUS_MISSED)
+
+    assert auto_close_miss_rate(conn) == 0.5

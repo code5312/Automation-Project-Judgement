@@ -103,6 +103,26 @@ CREATE TABLE IF NOT EXISTS task (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+-- Logs each 무관(무관) triage auto-close decision for one Event/IPAsset pair
+-- (docs/DESIGN.md "명확하게 무관한 사건은 자동 종결하되 표본 감사로
+-- 검증한다"). sampled_for_audit/audit_status let a human periodically
+-- review a random sample and catch false negatives — "자동 종결 누락률"
+-- (docs/DESIGN.md 평가 지표).
+CREATE TABLE IF NOT EXISTS auto_close_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL REFERENCES event (id),
+    ip_asset_id INTEGER NOT NULL REFERENCES ip_asset (id),
+    keyword_priority TEXT NOT NULL,
+    llm_label TEXT,
+    llm_confidence REAL,
+    closed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    sampled_for_audit INTEGER NOT NULL DEFAULT 0 CHECK (sampled_for_audit IN (0, 1)),
+    audit_status TEXT NOT NULL DEFAULT '대기' CHECK (audit_status IN ('대기', '확인 완료', '누락 발견')),
+    audit_note TEXT,
+    audited_at TEXT,
+    UNIQUE (event_id, ip_asset_id)
+);
+
 CREATE TABLE IF NOT EXISTS review_request (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     original_judgment_id INTEGER NOT NULL REFERENCES judgment (id),

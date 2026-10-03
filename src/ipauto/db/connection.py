@@ -24,10 +24,20 @@ def get_db_path() -> Path:
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
-    """Open a connection with foreign keys enforced and row access by name."""
+    """Open a connection with foreign keys enforced and row access by name.
+
+    ``check_same_thread=False`` because the Streamlit app caches this
+    connection with ``st.cache_resource`` and reuses it across reruns;
+    Streamlit's ScriptRunner can execute each rerun on a different thread,
+    which the sqlite3 module otherwise rejects outright even though access
+    is never actually concurrent within one session. This does not make the
+    connection safe for truly concurrent multi-user writes — that question
+    ("저장소: SQLite로 충분한지, 동시 사용자 수") is still an open blocker in
+    docs/PIPELINE.md, not solved here.
+    """
     path = db_path if db_path is not None else get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

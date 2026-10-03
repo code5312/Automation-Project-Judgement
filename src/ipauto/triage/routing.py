@@ -57,6 +57,7 @@ _IPC_FIELD = "IPC"
 @dataclass(frozen=True)
 class TriageDecision:
     outcome: str
+    keyword_priority: str
     reasons: list[str] = field(default_factory=list)
 
 
@@ -161,5 +162,5 @@ def decide_triage(
         reasons.append("키워드/IPC 점수가 중간대이고 LLM 판정이 없어 판단 보류")
 
     if reasons:
-        return TriageDecision(outcome=TRIAGE_AMBIGUOUS, reasons=reasons)
-    return TriageDecision(outcome=base_outcome, reasons=[])
+        return TriageDecision(outcome=TRIAGE_AMBIGUOUS, keyword_priority=keyword_priority, reasons=reasons)
+    return TriageDecision(outcome=base_outcome, keyword_priority=keyword_priority, reasons=[])

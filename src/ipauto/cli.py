@@ -353,7 +353,7 @@ def _run_triage(args: argparse.Namespace) -> int:
     from ipauto.db.connection import connect, init_db
     from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
     from ipauto.triage.llm_classifier import ClassificationFormatError, classify
-    from ipauto.triage.routing import decide_triage
+    from ipauto.triage.routing import TRIAGE_UNRELATED, decide_triage
 
     conn = connect()
     init_db(conn)
@@ -396,6 +396,21 @@ def _run_triage(args: argparse.Namespace) -> int:
     print(f"outcome: {decision.outcome}")
     for reason in decision.reasons:
         print(f"  - {reason}")
+
+    if decision.outcome == TRIAGE_UNRELATED:
+        from ipauto.db.repositories import AutoCloseLogInput, log_auto_close
+
+        _log_id, created = log_auto_close(
+            conn,
+            AutoCloseLogInput(
+                event_id=args.event_id,
+                ip_asset_id=args.ip_asset_id,
+                keyword_priority=decision.keyword_priority,
+                llm_label=llm_result.label if llm_result else None,
+                llm_confidence=llm_result.confidence if llm_result else None,
+            ),
+        )
+        print("자동 종결 로그 기록함" if created else "이미 자동 종결 로그에 있음 (중복 기록 안 함)")
     return 0
 
 

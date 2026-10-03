@@ -10,6 +10,9 @@ upsert, since a source's own record of an event doesn't change after the
 fact the way a KIPRIS record can. ``link`` (단계 3) is plain insert
 (``save_link``) plus one explicit ``confirm_link`` UPDATE for the one field
 docs/DESIGN.md expects to change after the fact: 사람 확인 여부.
+``auto_close_log`` (단계 3) is deduped by ``(event_id, ip_asset_id)`` like
+``event``, plus an explicit ``record_audit_result`` UPDATE for the sample-
+audit outcome (docs/DESIGN.md "자동 종결하되 표본 감사로 검증").
 """
 
 from __future__ import annotations
@@ -48,6 +51,11 @@ LINK_BASIS_IPC_MATCH = "IPC 일치"
 LINK_BASIS_KEYWORD = "키워드"
 LINK_BASIS_ASSIGNED = "담당자 지정"
 LINK_BASIS_LLM_SUGGESTION = "LLM 제안"
+
+AUDIT_STATUS_PENDING = "대기"
+AUDIT_STATUS_CONFIRMED = "확인 완료"
+AUDIT_STATUS_MISSED = "누락 발견"
+AUDIT_STATUS_CHOICES = (AUDIT_STATUS_PENDING, AUDIT_STATUS_CONFIRMED, AUDIT_STATUS_MISSED)
 
 
 @dataclass(frozen=True)
@@ -388,3 +396,113 @@ def confirm_link(conn: sqlite3.Connection, link_id: int) -> None:
         cursor = conn.execute("UPDATE link SET confirmed_by_human = 1 WHERE id = ?", (link_id,))
         if cursor.rowcount == 0:
             raise ValueError(f"No link with id {link_id}.")
+
+
+@dataclass(frozen=True)
+class AutoCloseLogInput:
+    event_id: int
+    ip_asset_id: int
+    keyword_priority: str
+    llm_label: str | None = None
+    llm_confidence: float | None = None
+
+
+def log_auto_close(conn: sqlite3.Connection, data: AutoCloseLogInput) -> tuple[int, bool]:
+    """Insert one auto-close log row, deduped by (event_id, ip_asset_id).
+
+    Returns (id, was_created): was_created is False when this pair was
+    already logged, in which case nothing was written.
+    """
+    existing = fetch_auto_close_log_for_pair(conn, data.event_id, data.ip_asset_id)
+    if existing is not None:
+        return existing["id"], False
+
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            INSERT INTO auto_close_log (event_id, ip_asset_id, keyword_priority, llm_label, llm_confidence)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (data.event_id, data.ip_asset_id, data.keyword_priority, data.llm_label, data.llm_confidence),
+        )
+        log_id = cursor.lastrowid
+    return log_id, True
+
+
+def fetch_auto_close_log_for_pair(conn: sqlite3.Connection, event_id: int, ip_asset_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM auto_close_log WHERE event_id = ? AND ip_asset_id = ?", (event_id, ip_asset_id)
+    ).fetchone()
+
+
+def fetch_auto_close_logs(conn: sqlite3.Connection, audit_status: str | None = None) -> list[sqlite3.Row]:
+    if audit_status is None:
+        return conn.execute("SELECT * FROM auto_close_log ORDER BY closed_at DESC, id DESC").fetchall()
+    return conn.execute(
+        "SELECT * FROM auto_close_log WHERE audit_status = ? ORDER BY closed_at DESC, id DESC", (audit_status,)
+    ).fetchall()
+
+
+def select_audit_sample(conn: sqlite3.Connection, sample_size: int) -> list[sqlite3.Row]:
+    """Mark up to sample_size un-sampled auto-close rows as sampled, chosen at random, and return them.
+
+    Rows already marked sampled_for_audit are never re-selected — call this
+    again later to draw a fresh sample from whatever has accumulated since.
+    """
+    with transaction(conn):
+        rows = conn.execute(
+            "SELECT id FROM auto_close_log WHERE sampled_for_audit = 0 ORDER BY RANDOM() LIMIT ?", (sample_size,)
+        ).fetchall()
+        ids = [row["id"] for row in rows]
+        if ids:
+            placeholders = ", ".join("?" for _ in ids)
+            conn.execute(f"UPDATE auto_close_log SET sampled_for_audit = 1 WHERE id IN ({placeholders})", ids)
+    if not ids:
+        return []
+    placeholders = ", ".join("?" for _ in ids)
+    return conn.execute(f"SELECT * FROM auto_close_log WHERE id IN ({placeholders}) ORDER BY id", ids).fetchall()
+
+
+def fetch_audit_queue(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Sampled rows still awaiting a human audit decision."""
+    return conn.execute(
+        "SELECT * FROM auto_close_log WHERE sampled_for_audit = 1 AND audit_status = ? ORDER BY closed_at",
+        (AUDIT_STATUS_PENDING,),
+    ).fetchall()
+
+
+def record_audit_result(
+    conn: sqlite3.Connection, log_id: int, audit_status: str, audit_note: str | None = None
+) -> None:
+    """Record a human's sample-audit decision for one auto-close log row."""
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE auto_close_log
+            SET audit_status = ?, audit_note = ?, audited_at = ?
+            WHERE id = ?
+            """,
+            (audit_status, audit_note, _now_iso(), log_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"No auto_close_log row with id {log_id}.")
+
+
+def auto_close_miss_rate(conn: sqlite3.Connection) -> float | None:
+    """자동 종결 누락률 (docs/DESIGN.md 평가 지표): share of *audited* rows marked 누락 발견.
+
+    Returns None when nothing has been audited yet (undefined, not 0.0).
+    """
+    row = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS audited,
+            SUM(CASE WHEN audit_status = ? THEN 1 ELSE 0 END) AS missed
+        FROM auto_close_log
+        WHERE audit_status != ?
+        """,
+        (AUDIT_STATUS_MISSED, AUDIT_STATUS_PENDING),
+    ).fetchone()
+    if not row["audited"]:
+        return None
+    return row["missed"] / row["audited"]
