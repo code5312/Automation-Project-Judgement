@@ -2,7 +2,7 @@
 
 KIPRIS Plus의 실제 특허 데이터를 검색·점수화해 사람이 먼저 검토할 후보의 우선순위를 보여주고, 사람의 IP 조치 판단을 이유·전제와 함께 append-only로 기록하는 도구다. 가짜 특허 데이터를 생성하지 않으며, 최종 판단은 항상 사람이 한다. 전체 설계는 [docs/DESIGN.md](docs/DESIGN.md), 진행 단계는 [docs/PIPELINE.md](docs/PIPELINE.md), 확인이 필요한 외부 사실은 [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md)를 참고한다.
 
-이 저장소는 현재 **단계 1(데이터 모델)**, **단계 2(수집·순위)** 를 완료했다. 평가 세트(`data/eval/ev_battery_cooling_v1.json`, 실제 KIPRIS 데이터 40건)는 담당자 mingyu가 2026-10-02에 확정했고, 기준선 75.0% → 80.0%로 완료 기준을 충족했다(`data/eval/README.md`, docs/PIPELINE.md 평가 지표 기록). **단계 3(트리아지·카드)** 은 자사 IP 포트폴리오 적재(`data/portfolio/README.md`), GitHub 릴리스 → Event 입력 커넥터, 사건 ↔ IP 자산 Link 연결, LLM 구조화 분류 프롬프트, 애매 큐 라우팅 규칙, 자동 종결 로그·표본 감사 화면, 게이트 A 화면, 판단 카드 생성까지 진행했다.
+이 저장소는 현재 **단계 1(데이터 모델)**, **단계 2(수집·순위)** 를 완료했다. 평가 세트(`data/eval/ev_battery_cooling_v1.json`, 실제 KIPRIS 데이터 40건)는 담당자 mingyu가 2026-10-02에 확정했고, 기준선 75.0% → 80.0%로 완료 기준을 충족했다(`data/eval/README.md`, docs/PIPELINE.md 평가 지표 기록). **단계 3(트리아지·카드)** 은 체크리스트 8개 항목(사건 입력, 포트폴리오 적재, Link 연결, LLM 분류, 애매 큐 라우팅, 자동 종결 로그·표본 감사, 게이트 A, 판단 카드, 트리아지 재측정)을 모두 반영했지만, 판단 카드에서 게이트 B 저장으로 바로 넘어가는 연결은 아직 없어 "사건 1건이 끊김 없이 이어진다"는 단계 완료 기준 자체는 미충족이다(아래 알려진 한계 참고).
 
 ## 설치와 실행
 
@@ -78,6 +78,12 @@ python -m ipauto.cli triage 1 1
 python -m ipauto.cli judgment-card 1 1
 ```
 
+같은 평가 세트로 트리아지 라우팅(무관/관련/애매) 정확도를 재측정하려면(LLM 없이 키워드/IPC 신호만):
+
+```powershell
+python -m ipauto.cli evaluate-triage
+```
+
 ## 환경 변수
 
 | 변수 | 필수 | 설명 |
@@ -110,11 +116,12 @@ src/ipauto/
   linking.py         사건 ↔ IP 자산 Link 제안 (기존 점수 로직 재사용)
   triage/llm_classifier.py   LLM 구조화 판정(few-shot + JSON 형식 검증)
   triage/routing.py   무관/관련/애매 라우팅(애매 큐 규칙 5가지)
+  triage/evaluation.py   평가 세트로 트리아지 라우팅 정확도 재측정
   cards/judgment_card.py   판단 카드 조립(요약·근거·유사 사례·추천 선택지, 저장 없이 매번 재계산)
   db/                schema.sql, connection.py, repositories.py — SQLite 저장소(Judgment·Premise·IPAsset·Event·Link·AutoCloseLog·GateAQueue 등)
   judgments/         service.py(게이트 B 검증), compare.py(집합 비교), migrate_json.py
   triage/ cards/ watch/   단계 3·4용 빈 인터페이스(llm_classifier·routing·judgment_card 제외 아직 미구현)
-  cli.py             검색·재조회·평가·포트폴리오 적재·사건 수집·Link 제안/확인·LLM 분류·트리아지·판단 카드·마이그레이션 CLI 진입점
+  cli.py             검색·재조회·평가·포트폴리오 적재·사건 수집·Link 제안/확인·LLM 분류·트리아지·트리아지 재측정·판단 카드·마이그레이션 CLI 진입점
 app/streamlit_app.py 검색 화면 + 게이트 B 판단 기록 폼
 app/pages/sample_audit.py   자동 종결 표본 감사 화면
 app/pages/gate_a_review.py   게이트 A: 애매한 사건 확인 화면
@@ -141,7 +148,8 @@ tests/               단위 테스트 + fixtures/(모두 샘플 데이터, 실�
 - 마이그레이션된 옛 판단 행은 검토 기술·검색어·담당자·재검토 기한이 실제 값이 아니라 "이전 데이터" 표시이며, 결정값도 원래의 관련도 판단이 아니라 사람 재확인을 유도하는 "타사 특허 확인 필요"로 일괄 표시된다(원래 판단은 `legacy_note`에 보존).
 - `ipauto.cli lookup`/`fetch_by_application_number`는 출원번호 전용 조회 API가 아니라 자유검색(`word`)에 출원번호를 그대로 넣어 재조회한다. KIPRIS가 출원번호를 자유검색 색인에 포함하는지 확인되지 않아, 결과가 없다고 해서 출원이 존재하지 않는다고 단정할 수 없다(docs/OPEN_QUESTIONS.md).
 - 평가 세트가 40건·한 기술 분야("전기차 배터리 냉각")뿐이라 개념/범용 임계값(현재 둘 다 70/40)과 주 IPC 신호 보너스(15점) 등은 폭넓게 검증된 값이 아니다. 확정된 평가 세트 기준 정확도는 80.0%(32/40, `docs/PIPELINE.md` 평가 지표 기록)이며, 차량+배터리 텍스트만으로 "보통" 밴드에 걸치는 경계 사례나 "냉각수 히팅파이프"처럼 냉각이 아닌 가열 기능을 가진 부품을 구분하는 문제가 남아 있다. 이런 의미 이해가 필요한 사례는 향후 LLM 분류(단계 3)로 보강하는 쪽을 검토한다.
-- 자사 IP 포트폴리오 적재(`ip_asset`), GitHub 릴리스 사건 수집(`event`), 사건↔IP 자산 Link 제안, LLM 구조화 분류(`classify-link`), 무관/관련/애매 라우팅(`triage`), 자동 종결 로그·표본 감사 화면, 게이트 A 화면, 판단 카드 생성까지는 됐지만, 전제 감시·Jira 연동은 아직 없다(단계 3 나머지~5). 게이트 A에서 "관련 확정"한 건이 자동으로 게이트 B로 넘어가는 연결도 아직 없다 — 지금은 `gate_a_queue.status`에 확정 결과만 남고, 판단 카드는 `judgment-card` CLI나 게이트 A 화면의 expander로 따로 봐야 한다.
+- 자사 IP 포트폴리오 적재(`ip_asset`), GitHub 릴리스 사건 수집(`event`), 사건↔IP 자산 Link 제안, LLM 구조화 분류(`classify-link`), 무관/관련/애매 라우팅(`triage`), 자동 종결 로그·표본 감사 화면, 게이트 A 화면, 판단 카드 생성, 평가 세트 트리아지 재측정(`evaluate-triage`)까지는 됐지만, 전제 감시·Jira 연동은 아직 없다(단계 3 나머지~5). **판단 카드에서 게이트 B 저장으로 바로 넘어가는 CLI/화면 연결이 없어, 단계 3의 "사건 1건이 끊김 없이 이어진다"는 완료 기준은 체크리스트 8개 항목이 모두 끝났음에도 아직 미충족이다** — 게이트 B 저장은 지금 `app/streamlit_app.py`의 기존 KIPRIS 검색 화면에서만 가능하고 Event 기반 파이프라인과는 안 이어져 있다(`judgment.event_id` 컬럼은 이미 있어 연결할 자리는 있음).
+- `ipauto.cli evaluate-triage`로 같은 평가 세트를 트리아지 라우팅(LLM 없이)에 직접 통과시켜보니 95.0%(38/40)로, 단계 2가 측정한 스코어러 단독 정확도 80.0%(32/40)보다 높게 나왔다. 이건 트리아지가 더 똑똑해서가 아니라 `ip_asset`에 초록 컬럼이 없어 트리아지 경로가 제목+IPC만 보기 때문이다 — 초록 텍스트 때문에 "보통"으로 과대평가됐던 6건이 바로잡혔다. 40건짜리 세트의 일회성 결과라 일반화하지 않는다(`docs/PIPELINE.md` 평가 지표 기록).
 - 판단 카드의 "추천 선택지"는 `ip_asset.asset_kind`(자사/외부)와 가장 최근 과거 Judgment만 보는 단순 규칙이다. LLM이 추천을 직접 내는 게 아니라 docs/DESIGN.md의 결정 열거형 순서를 재배열만 하며, 항상 전체 선택지를 그대로 보여준다("추천은 열거형 선택지로 제한").
 - `ipauto.db.connection.connect`가 `check_same_thread=False`로 열려 있어 캐싱된 커넥션을 여러 스레드에서 재사용할 수 있지만, 이건 Streamlit이 한 세션 안에서는 재실행을 순차적으로 실행한다는 가정에 의존한다. 실제 동시 다중 사용자 쓰기에 안전한지는 아직 검증되지 않았고, "저장소: SQLite로 충분한지, 동시 사용자 수"는 여전히 docs/PIPELINE.md 블로커 표의 미결정 사항이다.
 - `ipauto.triage.routing`의 "신호 불일치" 규칙은 docs/DESIGN.md가 원래 말하는 "임베딩 유사도 vs LLM" 조합이 아니라, 이 저장소에 실제로 있는 "키워드/IPC 점수 밴드 vs LLM" 조합이다. 임베딩 유사도 신호는 아직 구현되지 않았다.

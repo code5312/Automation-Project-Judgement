@@ -90,9 +90,9 @@ flowchart LR
 - [x] 자동 종결 로그와 표본 감사 화면. `auto_close_log` 테이블(schema.sql) + 저장소 함수(`log_auto_close`: `(event_id, ip_asset_id)` 기준 중복 방지, `select_audit_sample`: `ORDER BY RANDOM()`로 무작위 표본 추출 후 `sampled_for_audit` 표시, `record_audit_result`, `auto_close_miss_rate`: 감사 완료 건 기준 누락률) 추가. `ipauto.cli triage`가 무관으로 라우팅되면 자동으로 로그를 남김. 화면은 `app/pages/sample_audit.py`(Streamlit 멀티페이지, 표본 뽑기 + 확인완료/누락발견 버튼 + 누락률 지표). 실제 데모 데이터로 Streamlit의 `AppTest`를 이용해 버튼 클릭까지 전부 실제로 돌려 확인함 — 이 과정에서 `st.cache_resource`로 캐싱된 SQLite 커넥션이 Streamlit 재실행 시 다른 스레드에서 재사용되며 크래시하는 **실제 버그**를 발견해 `ipauto.db.connection.connect`에 `check_same_thread=False`를 추가해 고쳤다(기존 메인 화면에도 있던 잠재 버그). 동시 사용자 다중 쓰기까지 안전하게 만든 건 아니며, 그건 여전히 블로커 표의 미결정 사항("저장소: SQLite로 충분한지, 동시 사용자 수")
 - [x] 게이트 A 화면 (애매한 사건 확인). `gate_a_queue` 테이블(schema.sql, `(event_id, ip_asset_id)` 기준 중복 방지) + 저장소 함수(`enqueue_gate_a`, `fetch_gate_a_queue`, `gate_a_reasons`, `resolve_gate_a`: 관련 확정/무관 확정만 허용). `ipauto.cli triage`가 애매로 라우팅하면 애매 판정 근거(신호 불일치 등)와 함께 자동으로 대기열에 올림. 화면은 `app/pages/gate_a_review.py`(왜 애매로 분류됐는지 근거를 그대로 보여주고, 관련 확정/무관 확정 버튼 + 메모). 실제 데모 포트폴리오로 애매 라우팅 → 대기열 등록 → 화면에서 확정까지 전부 실제로 돌려 확인함. "판단 카드" 생성(관련 확정된 건을 카드로 넘기는 것)은 다음 항목
 - [x] 판단 카드 생성: 요약·근거 인용·유사 사례·누락 정보·추천 선택지·"법률 자문 아님" 문구·모델·프롬프트 버전. `cards/judgment_card.py`의 `build_judgment_card`가 사건 요약+원문 링크, 근거(LLM evidence 또는 키워드/IPC 스코어러의 설명 텍스트), 과거 Judgment 유사 사례, 누락 정보, 추천 선택지(DECISION_CHOICES 전체를 항상 반환하고 asset_kind·과거 판단으로 순서만 재배열 — 자유 서술 추천 금지), "법률 자문 아님" 문구, 모델·프롬프트 버전(LLM 호출 시 `ClassificationResult.model`/`.prompt_version`, 없으면 `-`)을 조립. 저장 테이블은 따로 안 만듦 — DESIGN.md가 판단 카드를 저장 엔티티로 정의하지 않고, 필요한 재료(Event·IPAsset·Judgment·LLM 결과)가 이미 있어 매번 다시 계산하는 뷰로 충분함. `ipauto.cli triage`가 관련으로 라우팅하면 자동으로 카드를 출력하고, `ipauto.cli judgment-card <event_id> <ip_asset_id>`로 아무 쌍이든 바로 생성 가능. `app/pages/gate_a_review.py`에도 "판단 카드 보기" expander로 추가해 게이트 A에서 확정하기 전에 바로 볼 수 있게 함. 실제 데모 포트폴리오 + 실제 저장한 과거 Judgment로 유사 사례·추천 순서 재배열까지 전부 실제로 확인함
-- [ ] 평가 세트로 트리아지 재측정
+- [x] 평가 세트로 트리아지 재측정. `triage/evaluation.py`의 `measure_triage_accuracy`가 기존 평가 세트(`data/eval/ev_battery_cooling_v1.json`)를 재사용해(새 라벨 세트 안 만듦), 높음→관련/보통→애매/낮음→무관으로 매핑한 뒤 `decide_triage`(LLM 없음, 신선한 DB — 과거 판단·고위험 유형·LLM 의존 규칙이 구조적으로 전혀 발동하지 않음)를 실제로 돌려 비교. `python -m ipauto.cli evaluate-triage` 추가. **실제 측정 결과: 95.0%(38/40), 애매 큐 비율 0.0%** — 단계 2가 측정한 80.0%(32/40, 제목+초록 기준)보다 높게 나온 이유를 실제로 추적함: `ip_asset`은 초록 컬럼이 없어 트리아지 경로는 제목+IPC만 보는데, 그 결과 "낮음"인데 초록 텍스트 때문에 "보통"으로 과대평가됐던 6건이 바로잡혔고, 제목 자체에 키워드가 있는 "냉각수 히팅파이프" 2건만 여전히 불일치로 남음. 40건짜리 평가 세트 기준의 일회성 결과라 "트리아지가 스코어러보다 낫다"로 일반화하지 않음 — README에 같이 기록
 
-**완료 기준**: 사건 1건이 트리아지 → 카드 → 게이트 B 저장까지 끊김 없이 이어진다.
+**완료 기준**: 사건 1건이 트리아지 → 카드 → 게이트 B 저장까지 끊김 없이 이어진다. **체크리스트 8개 항목은 모두 끝났지만, 이 완료 기준 자체는 아직 미충족** — 판단 카드(`judgment-card`)에서 바로 게이트 B 저장(`save_gate_b_judgment`)으로 넘어가는 CLI/화면 연결이 없다. 지금 게이트 B 저장은 `app/streamlit_app.py`의 기존 KIPRIS 검색 화면에서만 가능하고, Event/IPAsset 기반 트리아지 파이프라인과는 아직 안 이어져 있다(Judgment 테이블엔 `event_id` 컬럼이 이미 있어 연결할 자리는 있음). 다음 작업으로 남겨둔다.
 
 ## 단계 4. 전제 감시·재검토
 
@@ -134,7 +134,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | 기준선 (단계 2 시작, 2026-10-01) | 75.0% (30/40) | | | | `data/eval/ev_battery_cooling_v1.json`(mingyu 확정, 2026-10-02) 기준. IPC 패밀리/주 신호가 레코드 본문과 무관하게 검색어("냉각") 기준으로만 적용되고, 같은 범위 내 서브코드가 여러 개면 주 신호 보너스가 중복 합산되는 버그가 있던 시점의 점수 로직으로 측정 |
 | 단계 2 완료 (2026-10-02) | 80.0% (32/40) | | | | 같은 평가 세트. IPC 보너스가 레코드 본문에서 해당 개념이 실제로 발견됐을 때만 적용되고, 주 신호 보너스가 매칭된 서브코드 개수가 아니라 개념 1건당 1회만 적용되도록 수정(`src/ipauto/scoring/keywords.py`) → 기준선 대비 +5.0%p로 완료 기준 충족. 남은 불일치 8건은 임계값 보정(차량+배터리 텍스트만으로 "보통" 밴드에 걸침) 또는 의미 이해가 필요한 사례(냉각수 "히팅"파이프, 폐배터리 전해액 회수 장치의 응용 분야 오인식)로, 세트가 40건뿐이라 지금 더 규칙화하면 과적합 위험이 있어 보류 |
-| 단계 3 완료 | | | | | |
+| 단계 3 완료 (2026-10-03) | 95.0% (38/40) | 0.0% | | | 같은 평가 세트를 `ipauto.cli evaluate-triage`로 `decide_triage`(LLM 없음)에 직접 통과시켜 측정(높음→관련/보통→애매/낮음→무관 매핑). 단계 2의 80.0%보다 높게 나온 건 `ip_asset`에 초록 컬럼이 없어 트리아지가 제목+IPC만 보기 때문 — 초록 텍스트 때문에 "보통"으로 과대평가됐던 6건이 바로잡혔다. 남은 불일치 2건은 제목 자체에 키워드가 있는 "냉각수 히팅파이프"(여전히 냉각/가열 구분 문제). 재검토 오탐률·자동 종결 누락률은 전제 감시(단계 4)·실제 감사 이력이 쌓여야 계산 가능 |
 | 단계 4 완료 | | | | | |
 
 ## 위험 신호

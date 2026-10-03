@@ -132,6 +132,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evaluate.set_defaults(func=_run_evaluate)
 
+    evaluate_triage = subparsers.add_parser(
+        "evaluate-triage",
+        help="Re-measure 무관/관련/애매 routing accuracy against the labeled evaluation set (단계 3)",
+    )
+    evaluate_triage.add_argument(
+        "eval_set_path",
+        nargs="?",
+        default=str(Path(__file__).resolve().parents[2] / "data" / "eval" / "ev_battery_cooling_v1.json"),
+        help="평가 세트 JSON 경로 (기본값: data/eval/ev_battery_cooling_v1.json)",
+    )
+    evaluate_triage.set_defaults(func=_run_evaluate_triage)
+
     portfolio = subparsers.add_parser(
         "portfolio-load", help="Load KIPRIS-shaped records (JSON) into the ip_asset portfolio table (단계 3)"
     )
@@ -243,6 +255,34 @@ def _run_evaluate(args: argparse.Namespace) -> int:
         for item, predicted in result.mismatches:
             print(f"  [{item.application_number}] {item.title}")
             print(f"    사람: {item.human_label} / 시스템: {predicted} (사람 근거: {item.rationale})")
+    return 0
+
+
+def _run_evaluate_triage(args: argparse.Namespace) -> int:
+    from ipauto.evaluation import load_eval_set
+    from ipauto.triage.evaluation import measure_triage_accuracy
+
+    path = Path(args.eval_set_path)
+    if not path.exists():
+        print(f"Error: evaluation set not found: {path}", file=sys.stderr)
+        return 1
+
+    items = load_eval_set(path)
+    result = measure_triage_accuracy(items)
+
+    print(f"평가 세트: {path} ({result.total}건)  |  LLM 신호 없음(키워드/IPC만)")
+    print(f"분류 정확도 (높음→관련/보통→애매/낮음→무관 매핑 기준): {result.correct}/{result.total}", end=" ")
+    print(f"({result.accuracy:.1%})")
+    print(f"애매 큐 비율: {result.ambiguous_rate:.1%}")
+    print("\n라우팅 결과 분포:")
+    for outcome, count in sorted(result.outcome_counts.items()):
+        print(f"  {outcome}: {count}건")
+
+    if result.mismatches:
+        print(f"\n불일치 사례 ({len(result.mismatches)}건):")
+        for item, expected, actual in result.mismatches:
+            print(f"  [{item.application_number}] {item.title}")
+            print(f"    기대: {expected} / 실제: {actual} (사람 근거: {item.rationale})")
     return 0
 
 
