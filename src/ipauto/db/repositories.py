@@ -252,6 +252,10 @@ def fetch_ip_asset(conn: sqlite3.Connection, application_number: str) -> sqlite3
     return conn.execute("SELECT * FROM ip_asset WHERE application_number = ?", (application_number,)).fetchone()
 
 
+def fetch_ip_asset_by_id(conn: sqlite3.Connection, ip_asset_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM ip_asset WHERE id = ?", (ip_asset_id,)).fetchone()
+
+
 def fetch_ip_assets(conn: sqlite3.Connection, asset_kind: str | None = None) -> list[sqlite3.Row]:
     if asset_kind is None:
         return conn.execute("SELECT * FROM ip_asset ORDER BY application_number").fetchall()

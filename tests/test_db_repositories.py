@@ -24,6 +24,7 @@ from ipauto.db.repositories import (
     fetch_event_by_source_ref,
     fetch_events,
     fetch_ip_asset,
+    fetch_ip_asset_by_id,
     fetch_ip_assets,
     fetch_judgments_for_application,
     fetch_latest_judgment,
@@ -146,6 +147,8 @@ def test_save_ip_asset_inserts_new_row(conn):
     assert row["id"] == asset_id
     assert row["asset_kind"] == ASSET_KIND_OWN
     assert row["title"] == "샘플 배터리 팩"
+    assert fetch_ip_asset_by_id(conn, asset_id)["application_number"] == "SAMPLE-ASSET-0000001"
+    assert fetch_ip_asset_by_id(conn, 999999) is None
 
 
 def test_save_ip_asset_upserts_same_application_number(conn):

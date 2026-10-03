@@ -17,7 +17,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from ipauto.config import get_kipris_access_key, mask_secret
+from ipauto.config import get_kipris_access_key, get_llm_api_key, mask_secret
 from ipauto.connectors.kipris import (
     DEFAULT_MAX_PAGES_PER_QUERY,
     FIELDS,
@@ -163,6 +163,14 @@ def build_parser() -> argparse.ArgumentParser:
     confirm_link_parser.add_argument("link_id", type=int)
     confirm_link_parser.set_defaults(func=_run_confirm_link)
 
+    classify_parser = subparsers.add_parser(
+        "classify-link",
+        help="Ask an LLM to classify one Event/IPAsset pair's relevance (단계 3, requires ANTHROPIC_API_KEY)",
+    )
+    classify_parser.add_argument("event_id", type=int)
+    classify_parser.add_argument("ip_asset_id", type=int)
+    classify_parser.set_defaults(func=_run_classify_link)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -291,6 +299,44 @@ def _run_confirm_link(args: argparse.Namespace) -> int:
         return 1
 
     print(f"Link #{args.link_id}: 사람 확인으로 표시했습니다.")
+    return 0
+
+
+def _run_classify_link(args: argparse.Namespace) -> int:
+    from ipauto.connectors.llm import LLMError
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
+    from ipauto.triage.llm_classifier import ClassificationFormatError, classify
+
+    api_key = get_llm_api_key()
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY environment variable is not set.", file=sys.stderr)
+        return 1
+
+    conn = connect()
+    init_db(conn)
+    event = fetch_event(conn, args.event_id)
+    if event is None:
+        print(f"Error: event id {args.event_id} not found.", file=sys.stderr)
+        return 1
+    asset = fetch_ip_asset_by_id(conn, args.ip_asset_id)
+    if asset is None:
+        print(f"Error: ip_asset id {args.ip_asset_id} not found.", file=sys.stderr)
+        return 1
+
+    try:
+        result = classify(event["summary"] or "", asset["title"] or "", asset["ipc_codes"] or "", api_key=api_key)
+    except LLMError as exc:
+        print(f"Error: {mask_secret(str(exc), api_key)}", file=sys.stderr)
+        return 1
+    except ClassificationFormatError as exc:
+        print(f"Error: LLM 응답 형식이 올바르지 않습니다: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"label: {result.label}")
+    print(f"confidence: {result.confidence}")
+    print(f"evidence: {result.evidence}")
+    print(f"missing_info: {result.missing_info}")
     return 0
 
 
