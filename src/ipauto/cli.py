@@ -150,6 +150,19 @@ def build_parser() -> argparse.ArgumentParser:
     github_events.add_argument("--per-page", type=int, default=30, help="가져올 릴리스 수 (1-100, 기본값: 30)")
     github_events.set_defaults(func=_run_ingest_github_releases)
 
+    link_event = subparsers.add_parser(
+        "link-event",
+        help="Propose Link rows from one Event to the IP asset portfolio by relevance (단계 3)",
+    )
+    link_event.add_argument("event_id", type=int)
+    link_event.set_defaults(func=_run_link_event)
+
+    confirm_link_parser = subparsers.add_parser(
+        "confirm-link", help="Mark one proposed Link as confirmed by a human (게이트 A, 단계 3)"
+    )
+    confirm_link_parser.add_argument("link_id", type=int)
+    confirm_link_parser.set_defaults(func=_run_confirm_link)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -245,6 +258,39 @@ def _run_ingest_github_releases(args: argparse.Namespace) -> int:
         return 1
 
     print(f"{args.owner}/{args.repo}: 새 이벤트 {created}건, 이미 있던 이벤트 {skipped}건")
+    return 0
+
+
+def _run_link_event(args: argparse.Namespace) -> int:
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import fetch_event
+    from ipauto.linking import link_event_to_ip_assets
+
+    conn = connect()
+    init_db(conn)
+    event = fetch_event(conn, args.event_id)
+    if event is None:
+        print(f"Error: event id {args.event_id} not found.", file=sys.stderr)
+        return 1
+
+    created_ids = link_event_to_ip_assets(conn, args.event_id, event["summary"] or "")
+    print(f"사건 #{args.event_id} ({event['summary']}): 새 Link {len(created_ids)}건 제안됨 (사람 확인 전)")
+    return 0
+
+
+def _run_confirm_link(args: argparse.Namespace) -> int:
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import confirm_link
+
+    conn = connect()
+    init_db(conn)
+    try:
+        confirm_link(conn, args.link_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Link #{args.link_id}: 사람 확인으로 표시했습니다.")
     return 0
 
 

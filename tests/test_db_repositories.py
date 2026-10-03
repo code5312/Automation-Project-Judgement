@@ -11,10 +11,15 @@ from ipauto.db.repositories import (
     ASSET_KIND_EXTERNAL,
     ASSET_KIND_OWN,
     EVENT_STATUS_TRIAGED,
+    LINK_BASIS_IPC_MATCH,
+    LINK_OBJECT_EVENT,
+    LINK_OBJECT_IP_ASSET,
     EventInput,
     IpAssetInput,
     JudgmentInput,
+    LinkInput,
     PremiseInput,
+    confirm_link,
     count_judgments,
     fetch_event_by_source_ref,
     fetch_events,
@@ -22,12 +27,16 @@ from ipauto.db.repositories import (
     fetch_ip_assets,
     fetch_judgments_for_application,
     fetch_latest_judgment,
+    fetch_links_from,
+    fetch_links_to,
     fetch_premises_for_judgment,
+    find_link,
     find_migrated_judgment,
 )
 from ipauto.db.repositories import save_event as insert_event
 from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 from ipauto.db.repositories import save_judgment as insert_judgment
+from ipauto.db.repositories import save_link as insert_link
 
 
 @pytest.fixture
@@ -208,3 +217,63 @@ def test_fetch_events_filters_by_status(conn):
 
     assert len(fetch_events(conn)) == 2
     assert [row["source_ref"] for row in fetch_events(conn, status=EVENT_STATUS_TRIAGED)] == ["SAMPLE-RELEASE-2"]
+
+
+def _sample_link(**overrides) -> LinkInput:
+    defaults = dict(
+        from_type=LINK_OBJECT_EVENT,
+        from_id=1,
+        to_type=LINK_OBJECT_IP_ASSET,
+        to_id=1,
+        basis=LINK_BASIS_IPC_MATCH,
+        confidence_band="검토 우선순위 높음",
+    )
+    defaults.update(overrides)
+    return LinkInput(**defaults)
+
+
+def test_save_link_inserts_row_not_confirmed_by_default(conn):
+    link_id = insert_link(conn, _sample_link())
+
+    row = conn.execute("SELECT * FROM link WHERE id = ?", (link_id,)).fetchone()
+    assert row["basis"] == LINK_BASIS_IPC_MATCH
+    assert row["confirmed_by_human"] == 0
+
+
+def test_save_link_allows_multiple_rows_for_same_pair(conn):
+    # save_link itself doesn't dedupe; callers (ipauto.linking) are
+    # responsible for calling find_link first if they need idempotency.
+    insert_link(conn, _sample_link())
+    insert_link(conn, _sample_link())
+
+    assert len(fetch_links_from(conn, LINK_OBJECT_EVENT, 1)) == 2
+
+
+def test_find_link_locates_existing_pair(conn):
+    insert_link(conn, _sample_link())
+
+    assert find_link(conn, LINK_OBJECT_EVENT, 1, LINK_OBJECT_IP_ASSET, 1) is not None
+    assert find_link(conn, LINK_OBJECT_EVENT, 1, LINK_OBJECT_IP_ASSET, 999) is None
+
+
+def test_fetch_links_from_and_to(conn):
+    insert_link(conn, _sample_link())
+    insert_link(conn, _sample_link(to_id=2))
+
+    assert len(fetch_links_from(conn, LINK_OBJECT_EVENT, 1)) == 2
+    assert len(fetch_links_to(conn, LINK_OBJECT_IP_ASSET, 2)) == 1
+    assert len(fetch_links_to(conn, LINK_OBJECT_IP_ASSET, 999)) == 0
+
+
+def test_confirm_link_sets_flag(conn):
+    link_id = insert_link(conn, _sample_link())
+
+    confirm_link(conn, link_id)
+
+    row = conn.execute("SELECT confirmed_by_human FROM link WHERE id = ?", (link_id,)).fetchone()
+    assert row["confirmed_by_human"] == 1
+
+
+def test_confirm_link_rejects_unknown_id(conn):
+    with pytest.raises(ValueError):
+        confirm_link(conn, 999999)

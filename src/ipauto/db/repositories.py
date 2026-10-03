@@ -1,4 +1,4 @@
-"""Read/write access to the judgment ledger, IP asset portfolio, and events.
+"""Read/write access to the judgment ledger, IP asset portfolio, events, and links.
 
 ``judgment``/``premise`` are append-only: no function here issues UPDATE or
 DELETE against them, a correction is always a new Judgment row chained via
@@ -7,7 +7,9 @@ re-fetchable cache of KIPRIS attributes, so ``save_ip_asset`` is a normal
 upsert keyed by application_number. ``event`` (단계 3) is deduped by
 ``(source, source_ref)`` instead — ``save_event`` is insert-or-skip, not an
 upsert, since a source's own record of an event doesn't change after the
-fact the way a KIPRIS record can.
+fact the way a KIPRIS record can. ``link`` (단계 3) is plain insert
+(``save_link``) plus one explicit ``confirm_link`` UPDATE for the one field
+docs/DESIGN.md expects to change after the fact: 사람 확인 여부.
 """
 
 from __future__ import annotations
@@ -34,6 +36,18 @@ EVENT_STATUS_CHOICES = (EVENT_STATUS_NEW, EVENT_STATUS_TRIAGED, EVENT_STATUS_CLO
 ASSET_KIND_OWN = "자사"
 ASSET_KIND_EXTERNAL = "외부"
 ASSET_KIND_CHOICES = (ASSET_KIND_OWN, ASSET_KIND_EXTERNAL)
+
+# link.from_type/to_type (schema comment): 'event' | 'ip_asset' | 'judgment' | 'task'
+LINK_OBJECT_EVENT = "event"
+LINK_OBJECT_IP_ASSET = "ip_asset"
+LINK_OBJECT_JUDGMENT = "judgment"
+LINK_OBJECT_TASK = "task"
+
+# link.basis (schema comment): IPC 일치 / 키워드 / 담당자 지정 / LLM 제안
+LINK_BASIS_IPC_MATCH = "IPC 일치"
+LINK_BASIS_KEYWORD = "키워드"
+LINK_BASIS_ASSIGNED = "담당자 지정"
+LINK_BASIS_LLM_SUGGESTION = "LLM 제안"
 
 
 @dataclass(frozen=True)
@@ -300,9 +314,73 @@ def fetch_event_by_source_ref(conn: sqlite3.Connection, source: str, source_ref:
     return conn.execute("SELECT * FROM event WHERE source = ? AND source_ref = ?", (source, source_ref)).fetchone()
 
 
+def fetch_event(conn: sqlite3.Connection, event_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM event WHERE id = ?", (event_id,)).fetchone()
+
+
 def fetch_events(conn: sqlite3.Connection, status: str | None = None) -> list[sqlite3.Row]:
     if status is None:
         return conn.execute("SELECT * FROM event ORDER BY detected_at DESC, id DESC").fetchall()
     return conn.execute(
         "SELECT * FROM event WHERE status = ? ORDER BY detected_at DESC, id DESC", (status,)
     ).fetchall()
+
+
+@dataclass(frozen=True)
+class LinkInput:
+    from_type: str
+    from_id: int
+    to_type: str
+    to_id: int
+    basis: str
+    confidence_band: str | None = None
+    confirmed_by_human: bool = False
+
+
+def save_link(conn: sqlite3.Connection, data: LinkInput) -> int:
+    """Insert one Link row. Not deduped here — call find_link first if the caller needs idempotency."""
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            INSERT INTO link (from_type, from_id, to_type, to_id, basis, confidence_band, confirmed_by_human)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.from_type,
+                data.from_id,
+                data.to_type,
+                data.to_id,
+                data.basis,
+                data.confidence_band,
+                1 if data.confirmed_by_human else 0,
+            ),
+        )
+        link_id = cursor.lastrowid
+    return link_id
+
+
+def find_link(conn: sqlite3.Connection, from_type: str, from_id: int, to_type: str, to_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM link WHERE from_type = ? AND from_id = ? AND to_type = ? AND to_id = ?",
+        (from_type, from_id, to_type, to_id),
+    ).fetchone()
+
+
+def fetch_links_from(conn: sqlite3.Connection, from_type: str, from_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM link WHERE from_type = ? AND from_id = ? ORDER BY id", (from_type, from_id)
+    ).fetchall()
+
+
+def fetch_links_to(conn: sqlite3.Connection, to_type: str, to_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM link WHERE to_type = ? AND to_id = ? ORDER BY id", (to_type, to_id)
+    ).fetchall()
+
+
+def confirm_link(conn: sqlite3.Connection, link_id: int) -> None:
+    """Mark one Link as 사람이 확인함 (docs/DESIGN.md Link.확인자, 게이트 A)."""
+    with transaction(conn):
+        cursor = conn.execute("UPDATE link SET confirmed_by_human = 1 WHERE id = ?", (link_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"No link with id {link_id}.")
