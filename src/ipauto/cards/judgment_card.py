@@ -28,7 +28,15 @@ import sqlite3
 from dataclasses import dataclass
 
 from ipauto.db.repositories import ASSET_KIND_EXTERNAL, DECISION_CHOICES, fetch_judgments_for_application
-from ipauto.scoring.keywords import MATCHED_FIELD, REASON_FIELD, calculate_relevance
+from ipauto.judgments.service import save_gate_b_judgment
+from ipauto.scoring.keywords import (
+    ANALYSIS_MODE_FIELD,
+    MATCHED_FIELD,
+    PRIORITY_FIELD,
+    REASON_FIELD,
+    SCORE_FIELD,
+    calculate_relevance,
+)
 from ipauto.triage.llm_classifier import ClassificationResult
 
 LEGAL_DISCLAIMER = (
@@ -60,6 +68,9 @@ class JudgmentCard:
     similar_cases: list[SimilarCase]
     missing_info: list[str]
     recommended_decisions: list[str]
+    relevance_score: float
+    review_priority: str
+    analysis_mode: str
     disclaimer: str = LEGAL_DISCLAIMER
     model_version: str | None = None
     prompt_version: str | None = None
@@ -109,15 +120,20 @@ def build_judgment_card(
     similar_cases = _similar_cases(conn, asset_row["application_number"])
     past_decision = similar_cases[0].decision if similar_cases else None
 
+    # The keyword/IPC score is computed regardless of whether an LLM result
+    # is available — relevance_score/review_priority/analysis_mode are
+    # provenance for the eventual Judgment row either way; only the
+    # evidence/missing_info text source switches on llm_result.
+    record = {_TITLE_FIELD: asset_row["title"] or "", _IPC_FIELD: asset_row["ipc_codes"] or ""}
+    scoring_result = calculate_relevance(event_row["summary"] or "", record)
+
     if llm_result is not None:
         evidence = list(llm_result.evidence)
         missing_info = list(llm_result.missing_info)
         model_version = llm_result.model
         prompt_version = llm_result.prompt_version
     else:
-        record = {_TITLE_FIELD: asset_row["title"] or "", _IPC_FIELD: asset_row["ipc_codes"] or ""}
-        result = calculate_relevance(event_row["summary"] or "", record)
-        evidence = [str(result[REASON_FIELD])] if result[MATCHED_FIELD] else []
+        evidence = [str(scoring_result[REASON_FIELD])] if scoring_result[MATCHED_FIELD] else []
         missing_info = []
         model_version = None
         prompt_version = None
@@ -133,8 +149,50 @@ def build_judgment_card(
         similar_cases=similar_cases,
         missing_info=missing_info,
         recommended_decisions=_recommend_decisions(asset_row["asset_kind"], past_decision),
+        relevance_score=float(scoring_result[SCORE_FIELD]),
+        review_priority=str(scoring_result[PRIORITY_FIELD]),
+        analysis_mode=str(scoring_result[ANALYSIS_MODE_FIELD]),
         model_version=model_version,
         prompt_version=prompt_version,
+    )
+
+
+def save_judgment_from_card(
+    conn: sqlite3.Connection,
+    card: JudgmentCard,
+    *,
+    decision: str,
+    reason: str,
+    premises: list[tuple[str, str, str]],
+    assignee: str,
+    review_deadline: str,
+) -> int:
+    """Save one Gate B Judgment sourced from a Judgment Card (판단 카드 → 게이트 B).
+
+    ``review_technology`` is the card's ``event_summary`` — playing the same
+    role the free-text "검토하려는 기술" field plays in the original
+    KIPRIS-search flow, since here the 사건 itself is what's being checked
+    against. All of the card's scoring/LLM provenance (relevance_score,
+    review_priority, analysis_mode, model_version, prompt_version) and the
+    source event_id are carried onto the saved Judgment row. Validation and
+    duplicate detection are still ``ipauto.judgments.service``'s job — this
+    only wires the card's fields into that same call.
+    """
+    return save_gate_b_judgment(
+        conn,
+        application_number=card.application_number,
+        review_technology=card.event_summary,
+        decision=decision,
+        reason=reason,
+        premises=premises,
+        assignee=assignee,
+        review_deadline=review_deadline,
+        analysis_mode=card.analysis_mode,
+        relevance_score=card.relevance_score,
+        review_priority=card.review_priority,
+        event_id=card.event_id,
+        model_version=card.model_version,
+        prompt_version=card.prompt_version,
     )
 
 
@@ -168,6 +226,9 @@ def format_card_text(card: JudgmentCard) -> str:
         lines.append("  (없음)")
 
     lines.append(f"추천 선택지 (순서대로): {', '.join(card.recommended_decisions)}")
+    lines.append(
+        f"관련도 점수/우선순위/분석 모드: {card.relevance_score} / {card.review_priority} / {card.analysis_mode}"
+    )
     lines.append(f"모델/프롬프트 버전: {card.model_version or '-'} / {card.prompt_version or '-'}")
     lines.append(card.disclaimer)
     return "\n".join(lines)

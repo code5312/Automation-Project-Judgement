@@ -25,7 +25,7 @@ from ipauto.connectors.kipris import (
     fetch_all,
     fetch_by_application_number,
 )
-from ipauto.db.repositories import ASSET_KIND_CHOICES, ASSET_KIND_OWN
+from ipauto.db.repositories import ASSET_KIND_CHOICES, ASSET_KIND_OWN, DECISION_CHOICES
 from ipauto.scoring.keywords import (
     ANALYSIS_MODE_FIELD,
     MATCHED_FIELD,
@@ -198,6 +198,25 @@ def build_parser() -> argparse.ArgumentParser:
     card_parser.add_argument("event_id", type=int)
     card_parser.add_argument("ip_asset_id", type=int)
     card_parser.set_defaults(func=_run_judgment_card)
+
+    save_judgment_parser = subparsers.add_parser(
+        "save-judgment",
+        help="Save a Gate B Judgment from a Judgment Card (판단 카드 → 게이트 B, 단계 3)",
+    )
+    save_judgment_parser.add_argument("event_id", type=int)
+    save_judgment_parser.add_argument("ip_asset_id", type=int)
+    save_judgment_parser.add_argument("--decision", required=True, choices=DECISION_CHOICES)
+    save_judgment_parser.add_argument("--reason", required=True, help="판단 이유 (공백 불가)")
+    save_judgment_parser.add_argument("--assignee", required=True)
+    save_judgment_parser.add_argument("--review-deadline", required=True, help="예: 2026-12-31")
+    save_judgment_parser.add_argument(
+        "--premise",
+        nargs=3,
+        metavar=("SOURCE", "CHECK_KEY", "EXPECTED_VALUE"),
+        action="append",
+        help="반복 가능. 생략하면 IP 자산의 등록상태/출원인/IPC를 기본 전제로 사용",
+    )
+    save_judgment_parser.set_defaults(func=_run_save_judgment)
 
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
@@ -501,6 +520,48 @@ def _run_judgment_card(args: argparse.Namespace) -> int:
 
     card = build_judgment_card(conn, event, asset)
     print(format_card_text(card))
+    return 0
+
+
+def _run_save_judgment(args: argparse.Namespace) -> int:
+    from ipauto.cards.judgment_card import build_judgment_card, save_judgment_from_card
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
+    from ipauto.judgments.service import (
+        DuplicateJudgmentError,
+        JudgmentValidationError,
+        default_premises_from_ip_asset,
+    )
+
+    conn = connect()
+    init_db(conn)
+    event = fetch_event(conn, args.event_id)
+    if event is None:
+        print(f"Error: event id {args.event_id} not found.", file=sys.stderr)
+        return 1
+    asset = fetch_ip_asset_by_id(conn, args.ip_asset_id)
+    if asset is None:
+        print(f"Error: ip_asset id {args.ip_asset_id} not found.", file=sys.stderr)
+        return 1
+
+    card = build_judgment_card(conn, event, asset)
+    premises = [tuple(p) for p in args.premise] if args.premise else default_premises_from_ip_asset(asset)
+
+    try:
+        judgment_id = save_judgment_from_card(
+            conn,
+            card,
+            decision=args.decision,
+            reason=args.reason,
+            premises=premises,
+            assignee=args.assignee,
+            review_deadline=args.review_deadline,
+        )
+    except (JudgmentValidationError, DuplicateJudgmentError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Judgment #{judgment_id} 저장함 (출원번호 {card.application_number}, 결정: {args.decision})")
     return 0
 
 

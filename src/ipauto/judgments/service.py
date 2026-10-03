@@ -61,6 +61,9 @@ def save_gate_b_judgment(
     analysis_mode: str | None = None,
     relevance_score: float | None = None,
     review_priority: str | None = None,
+    event_id: int | None = None,
+    model_version: str | None = None,
+    prompt_version: str | None = None,
 ) -> int:
     """Validate and append one Gate B judgment. Returns the new judgment id.
 
@@ -110,8 +113,25 @@ def save_gate_b_judgment(
         relevance_score=relevance_score,
         review_priority=review_priority,
         previous_judgment_id=latest["id"] if latest is not None else None,
+        event_id=event_id,
+        model_version=model_version,
+        prompt_version=prompt_version,
     )
     return _insert_judgment(conn, data)
+
+
+def default_premises_from_ip_asset(asset_row: sqlite3.Row) -> list[tuple[str, str, str]]:
+    """Pre-fill premise inputs from an IPAsset row; the human still confirms or edits them.
+
+    Mirrors app/streamlit_app.py's ``_default_premise_slots``, which does
+    the same from a live KIPRIS search result — this is the ip_asset-backed
+    equivalent for the Event/트리아지 flow (``ipauto.cards.judgment_card``).
+    """
+    return [
+        ("KIPRIS 재조회", STATUS_FIELD, str(asset_row["legal_status"] or "")),
+        ("KIPRIS 재조회", APPLICANT_FIELD, str(asset_row["applicant"] or "")),
+        ("KIPRIS 재조회", IPC_FIELD, str(asset_row["ipc_codes"] or "")),
+    ]
 
 
 def history_for_application(conn: sqlite3.Connection, application_number: str) -> list[sqlite3.Row]:

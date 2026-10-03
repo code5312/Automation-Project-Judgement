@@ -7,9 +7,13 @@ import sqlite3
 import pytest
 
 from ipauto.db.connection import init_db
+from ipauto.db.repositories import EventInput, IpAssetInput
+from ipauto.db.repositories import save_event as insert_event
+from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 from ipauto.judgments.service import (
     DuplicateJudgmentError,
     JudgmentValidationError,
+    default_premises_from_ip_asset,
     fetch_latest_judgment,
     history_for_application,
     premises_for_judgment,
@@ -91,3 +95,54 @@ def test_history_for_application_lists_all_judgments(conn):
 
     history = history_for_application(conn, "SAMPLE-0000001")
     assert len(history) == 2
+
+
+def test_save_carries_event_id_and_model_prompt_version_onto_the_row(conn):
+    event_id, _ = insert_event(
+        conn, EventInput(event_type="오픈소스 공개", source="GitHub", source_ref="SAMPLE-1", summary="샘플 사건")
+    )
+
+    judgment_id = _save(conn, event_id=event_id, model_version="sample-model", prompt_version="sample-prompt-v1")
+
+    row = conn.execute("SELECT * FROM judgment WHERE id = ?", (judgment_id,)).fetchone()
+    assert row["event_id"] == event_id
+    assert row["model_version"] == "sample-model"
+    assert row["prompt_version"] == "sample-prompt-v1"
+
+
+def test_save_without_event_id_leaves_it_null(conn):
+    judgment_id = _save(conn)
+
+    row = conn.execute("SELECT event_id FROM judgment WHERE id = ?", (judgment_id,)).fetchone()
+    assert row["event_id"] is None
+
+
+def test_default_premises_from_ip_asset_maps_legal_status_applicant_ipc(conn):
+    asset_id = insert_ip_asset(
+        conn,
+        IpAssetInput(
+            application_number="SAMPLE-ASSET-0000001",
+            asset_kind="자사",
+            applicant="샘플 주식회사",
+            ipc_codes="H01M 10/613",
+            legal_status="공개(샘플)",
+        ),
+    )
+    asset_row = conn.execute("SELECT * FROM ip_asset WHERE id = ?", (asset_id,)).fetchone()
+
+    premises = default_premises_from_ip_asset(asset_row)
+
+    assert premises == [
+        ("KIPRIS 재조회", "등록상태", "공개(샘플)"),
+        ("KIPRIS 재조회", "출원인", "샘플 주식회사"),
+        ("KIPRIS 재조회", "IPC", "H01M 10/613"),
+    ]
+
+
+def test_default_premises_from_ip_asset_handles_missing_fields(conn):
+    asset_id = insert_ip_asset(conn, IpAssetInput(application_number="SAMPLE-ASSET-0000002", asset_kind="자사"))
+    asset_row = conn.execute("SELECT * FROM ip_asset WHERE id = ?", (asset_id,)).fetchone()
+
+    premises = default_premises_from_ip_asset(asset_row)
+
+    assert all(expected_value == "" for _source, _check_key, expected_value in premises)
