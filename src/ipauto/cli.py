@@ -179,6 +179,14 @@ def build_parser() -> argparse.ArgumentParser:
     triage_parser.add_argument("ip_asset_id", type=int)
     triage_parser.set_defaults(func=_run_triage)
 
+    card_parser = subparsers.add_parser(
+        "judgment-card",
+        help="Assemble and print the 판단 카드 for one Event/IPAsset pair (단계 3, no LLM call made here)",
+    )
+    card_parser.add_argument("event_id", type=int)
+    card_parser.add_argument("ip_asset_id", type=int)
+    card_parser.set_defaults(func=_run_judgment_card)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -353,7 +361,7 @@ def _run_triage(args: argparse.Namespace) -> int:
     from ipauto.db.connection import connect, init_db
     from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
     from ipauto.triage.llm_classifier import ClassificationFormatError, classify
-    from ipauto.triage.routing import TRIAGE_AMBIGUOUS, TRIAGE_UNRELATED, decide_triage
+    from ipauto.triage.routing import TRIAGE_AMBIGUOUS, TRIAGE_RELATED, TRIAGE_UNRELATED, decide_triage
 
     conn = connect()
     init_db(conn)
@@ -426,6 +434,33 @@ def _run_triage(args: argparse.Namespace) -> int:
             ),
         )
         print("게이트 A 대기열에 올림" if created else "이미 게이트 A 대기열에 있음 (중복 기록 안 함)")
+    elif decision.outcome == TRIAGE_RELATED:
+        from ipauto.cards.judgment_card import build_judgment_card, format_card_text
+
+        card = build_judgment_card(conn, event, asset, llm_result=llm_result)
+        print()
+        print(format_card_text(card))
+    return 0
+
+
+def _run_judgment_card(args: argparse.Namespace) -> int:
+    from ipauto.cards.judgment_card import build_judgment_card, format_card_text
+    from ipauto.db.connection import connect, init_db
+    from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
+
+    conn = connect()
+    init_db(conn)
+    event = fetch_event(conn, args.event_id)
+    if event is None:
+        print(f"Error: event id {args.event_id} not found.", file=sys.stderr)
+        return 1
+    asset = fetch_ip_asset_by_id(conn, args.ip_asset_id)
+    if asset is None:
+        print(f"Error: ip_asset id {args.ip_asset_id} not found.", file=sys.stderr)
+        return 1
+
+    card = build_judgment_card(conn, event, asset)
+    print(format_card_text(card))
     return 0
 
 

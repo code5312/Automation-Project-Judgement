@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from ipauto.cards.judgment_card import build_judgment_card, format_card_text
 from ipauto.db.connection import connect, init_db
 from ipauto.db.repositories import (
     GATE_A_STATUS_RELATED,
@@ -52,6 +53,11 @@ def _render_queue_item(conn, queue_row) -> None:
         for reason in gate_a_reasons(queue_row):
             st.warning(reason, icon="⚠")
         st.caption(f"대기열 등록 시각: {queue_row['queued_at']}")
+
+        if event is not None and asset is not None:
+            with st.expander("판단 카드 보기 (사건 요약·근거·유사 사례·추천 선택지)"):
+                card = build_judgment_card(conn, event, asset)
+                st.text(format_card_text(card))
 
         note = st.text_input("확인 메모 (선택)", key=f"note_{queue_row['id']}")
         related_col, unrelated_col = st.columns(2)

@@ -21,6 +21,10 @@ from ipauto.db.repositories import save_event as insert_event
 from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 
 PAGE_PATH = Path(__file__).resolve().parents[1] / "app" / "pages" / "gate_a_review.py"
+# This page now also builds a judgment card per queued pair, which imports
+# ipauto.scoring.keywords — its module-level kiwipiepy model load is slow
+# on first import, easily exceeding AppTest's default 3s run timeout.
+RUN_TIMEOUT = 30
 
 
 @pytest.fixture
@@ -63,7 +67,7 @@ def _seed_two_queued_pairs(path):
 
 def test_page_renders_with_no_data(db_path):
     assert os.environ["IPAUTO_DB_PATH"] == str(db_path)
-    at = AppTest.from_file(PAGE_PATH)
+    at = AppTest.from_file(PAGE_PATH, default_timeout=RUN_TIMEOUT)
     at.run()
 
     assert not at.exception
@@ -73,7 +77,7 @@ def test_page_renders_with_no_data(db_path):
 def test_queued_pairs_render_with_reasons_and_buttons(db_path):
     _seed_two_queued_pairs(db_path)
 
-    at = AppTest.from_file(PAGE_PATH)
+    at = AppTest.from_file(PAGE_PATH, default_timeout=RUN_TIMEOUT)
     at.run()
 
     assert not at.exception
@@ -86,7 +90,7 @@ def test_queued_pairs_render_with_reasons_and_buttons(db_path):
 def test_confirming_related_and_unrelated_resolves_queue(db_path):
     _seed_two_queued_pairs(db_path)
 
-    at = AppTest.from_file(PAGE_PATH)
+    at = AppTest.from_file(PAGE_PATH, default_timeout=RUN_TIMEOUT)
     at.run()
 
     related_buttons = [b for b in at.button if b.key and b.key.startswith("related_")]

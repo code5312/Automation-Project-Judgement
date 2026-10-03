@@ -28,6 +28,11 @@ LABEL_RELEVANT = "관련"
 LABEL_UNRELATED = "무관"
 LABEL_CHOICES = (LABEL_RELEVANT, LABEL_UNRELATED)
 
+# Bumped whenever the system prompt or few-shot examples change meaningfully
+# (docs/DESIGN.md "모든 분류와 추천에... 사용한 모델·프롬프트 버전을
+# 붙인다") — a 판단 카드 cites this alongside the model name.
+PROMPT_VERSION = "llm_classifier_v1"
+
 _REQUIRED_KEYS = ("label", "confidence", "evidence", "missing_info")
 
 _SYSTEM_PROMPT = (
@@ -101,6 +106,8 @@ class ClassificationResult:
     evidence: list[str]
     missing_info: list[str]
     raw_response: str
+    model: str = DEFAULT_MODEL
+    prompt_version: str = PROMPT_VERSION
 
 
 def _format_example(example: dict) -> str:
@@ -145,7 +152,7 @@ def _require_string_list(payload: dict, key: str) -> list[str]:
     return value
 
 
-def parse_classification(raw_response: str) -> ClassificationResult:
+def parse_classification(raw_response: str, model: str = DEFAULT_MODEL) -> ClassificationResult:
     """Validate and parse one LLM structured-JSON reply. Raises ClassificationFormatError."""
     payload = _extract_json_object(raw_response)
 
@@ -169,6 +176,7 @@ def parse_classification(raw_response: str) -> ClassificationResult:
         evidence=_require_string_list(payload, "evidence"),
         missing_info=_require_string_list(payload, "missing_info"),
         raw_response=raw_response,
+        model=model,
     )
 
 
@@ -188,4 +196,4 @@ def classify(
     """
     prompt = build_prompt(event_summary, asset_title, asset_ipc)
     raw_response = complete(prompt, api_key=api_key, system=_SYSTEM_PROMPT, model=model)
-    return parse_classification(raw_response)
+    return parse_classification(raw_response, model=model)
