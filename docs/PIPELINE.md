@@ -82,7 +82,7 @@ flowchart LR
 **목표**: "오픈소스 공개" 사건 한 가지가 카드까지 이어진다.
 **선행 조건**: 단계 2 완료, 데모 데이터와 LLM 정책 결정
 
-- [ ] 사건 입력 커넥터 1개: 공개 GitHub 릴리스 → Event 정규화 (출처 ID로 중복 방지)
+- [x] 사건 입력 커넥터 1개: 공개 GitHub 릴리스 → Event 정규화 (출처 ID로 중복 방지). `connectors/github.py`(인증 없는 공개 releases API), `events.py`(`event_from_github_release`, `ingest_github_releases`), `event` 저장소 함수(`save_event`: `(source, source_ref)` 기준 중복 삽입 방지, `fetch_events`), `python -m ipauto.cli ingest-github-releases <owner> <repo>` 추가. 실제 공개 레포(cli/cli)로 재실행해도 중복 안 쌓이는 것까지 확인함
 - [x] 자사 IP 목록 적재: 한 회사의 KIPRIS 출원 목록(포트폴리오 역할). `ip_asset` 저장소 함수(`save_ip_asset`/`fetch_ip_asset(s)`, upsert)와 `ipauto.portfolio.ingest_records`/`ingest_application_numbers`, `python -m ipauto.cli portfolio-load` 추가. 데모 데이터는 `data/portfolio/demo_own_company_v1.json`(실제 KIPRIS 데이터, 가상 역할 — `data/portfolio/README.md` 참고). 출원인 기준 KIPRIS 일괄 조회는 여전히 미확인이라(`docs/OPEN_QUESTIONS.md`) 지금은 출원번호를 직접 알아야 적재 가능
 - [ ] Link 테이블: 사건 ↔ 자사 IP ↔ 외부 특허 연결, 사람 확인 표시
 - [ ] LLM 분류 프롬프트 (few-shot, 구조화 JSON: label·confidence·evidence·missing_info) + 형식 검증

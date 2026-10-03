@@ -10,10 +10,14 @@ from ipauto.db.connection import init_db
 from ipauto.db.repositories import (
     ASSET_KIND_EXTERNAL,
     ASSET_KIND_OWN,
+    EVENT_STATUS_TRIAGED,
+    EventInput,
     IpAssetInput,
     JudgmentInput,
     PremiseInput,
     count_judgments,
+    fetch_event_by_source_ref,
+    fetch_events,
     fetch_ip_asset,
     fetch_ip_assets,
     fetch_judgments_for_application,
@@ -21,6 +25,7 @@ from ipauto.db.repositories import (
     fetch_premises_for_judgment,
     find_migrated_judgment,
 )
+from ipauto.db.repositories import save_event as insert_event
 from ipauto.db.repositories import save_ip_asset as insert_ip_asset
 from ipauto.db.repositories import save_judgment as insert_judgment
 
@@ -158,3 +163,48 @@ def test_fetch_ip_assets_filters_by_kind(conn):
     assert [row["application_number"] for row in fetch_ip_assets(conn, asset_kind=ASSET_KIND_OWN)] == [
         "SAMPLE-ASSET-0000001"
     ]
+
+
+def _sample_event(**overrides) -> EventInput:
+    defaults = dict(
+        event_type="오픈소스 공개",
+        source="GitHub",
+        source_ref="SAMPLE-RELEASE-1",
+        source_url="https://example.invalid/sample",
+        summary="샘플 릴리스",
+    )
+    defaults.update(overrides)
+    return EventInput(**defaults)
+
+
+def test_save_event_inserts_new_row_and_sets_detected_at(conn):
+    event_id, was_created = insert_event(conn, _sample_event())
+
+    assert was_created is True
+    row = fetch_event_by_source_ref(conn, "GitHub", "SAMPLE-RELEASE-1")
+    assert row["id"] == event_id
+    assert row["status"] == "신규"
+    assert row["detected_at"]  # auto-filled, not blank
+
+
+def test_save_event_is_deduped_by_source_and_source_ref(conn):
+    first_id, first_created = insert_event(conn, _sample_event())
+    second_id, second_created = insert_event(conn, _sample_event(summary="다른 요약이어도 중복으로 처리"))
+
+    assert first_created is True
+    assert second_created is False
+    assert first_id == second_id
+    assert conn.execute("SELECT COUNT(*) AS n FROM event").fetchone()["n"] == 1
+
+
+def test_save_event_rejects_invalid_status(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        insert_event(conn, _sample_event(status="알 수 없음"))
+
+
+def test_fetch_events_filters_by_status(conn):
+    insert_event(conn, _sample_event())
+    insert_event(conn, _sample_event(source_ref="SAMPLE-RELEASE-2", status=EVENT_STATUS_TRIAGED))
+
+    assert len(fetch_events(conn)) == 2
+    assert [row["source_ref"] for row in fetch_events(conn, status=EVENT_STATUS_TRIAGED)] == ["SAMPLE-RELEASE-2"]

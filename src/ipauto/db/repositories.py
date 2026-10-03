@@ -1,16 +1,20 @@
-"""Read/write access to the judgment ledger and IP asset portfolio.
+"""Read/write access to the judgment ledger, IP asset portfolio, and events.
 
 ``judgment``/``premise`` are append-only: no function here issues UPDATE or
 DELETE against them, a correction is always a new Judgment row chained via
 ``previous_judgment_id``. ``ip_asset`` (단계 3) is different — it is a
 re-fetchable cache of KIPRIS attributes, so ``save_ip_asset`` is a normal
-upsert keyed by application_number.
+upsert keyed by application_number. ``event`` (단계 3) is deduped by
+``(source, source_ref)`` instead — ``save_event`` is insert-or-skip, not an
+upsert, since a source's own record of an event doesn't change after the
+fact the way a KIPRIS record can.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from ipauto.db.connection import transaction
 
@@ -21,6 +25,11 @@ DECISION_CHOICES = (
     "정리 검토",
     "타사 특허 확인 필요",
 )
+
+EVENT_STATUS_NEW = "신규"
+EVENT_STATUS_TRIAGED = "트리아지 완료"
+EVENT_STATUS_CLOSED = "종결"
+EVENT_STATUS_CHOICES = (EVENT_STATUS_NEW, EVENT_STATUS_TRIAGED, EVENT_STATUS_CLOSED)
 
 ASSET_KIND_OWN = "자사"
 ASSET_KIND_EXTERNAL = "외부"
@@ -234,4 +243,66 @@ def fetch_ip_assets(conn: sqlite3.Connection, asset_kind: str | None = None) -> 
         return conn.execute("SELECT * FROM ip_asset ORDER BY application_number").fetchall()
     return conn.execute(
         "SELECT * FROM ip_asset WHERE asset_kind = ? ORDER BY application_number", (asset_kind,)
+    ).fetchall()
+
+
+def _now_iso() -> str:
+    now = datetime.now(UTC)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
+@dataclass(frozen=True)
+class EventInput:
+    event_type: str
+    source: str
+    source_ref: str
+    source_url: str | None = None
+    detected_at: str | None = None
+    occurred_at: str | None = None
+    summary: str | None = None
+    status: str = EVENT_STATUS_NEW
+
+
+def save_event(conn: sqlite3.Connection, data: EventInput) -> tuple[int, bool]:
+    """Insert one Event, deduped by (source, source_ref) (docs/DESIGN.md "출처별 고유 ID로 중복 수신을 막는다").
+
+    Returns (id, was_created): was_created is False when a row for this
+    (source, source_ref) already existed, in which case nothing was
+    written and the existing row's id is returned.
+    """
+    existing = fetch_event_by_source_ref(conn, data.source, data.source_ref)
+    if existing is not None:
+        return existing["id"], False
+
+    detected_at = data.detected_at if data.detected_at is not None else _now_iso()
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            INSERT INTO event (event_type, source, source_ref, source_url, detected_at, occurred_at, summary, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.event_type,
+                data.source,
+                data.source_ref,
+                data.source_url,
+                detected_at,
+                data.occurred_at,
+                data.summary,
+                data.status,
+            ),
+        )
+        event_id = cursor.lastrowid
+    return event_id, True
+
+
+def fetch_event_by_source_ref(conn: sqlite3.Connection, source: str, source_ref: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM event WHERE source = ? AND source_ref = ?", (source, source_ref)).fetchone()
+
+
+def fetch_events(conn: sqlite3.Connection, status: str | None = None) -> list[sqlite3.Row]:
+    if status is None:
+        return conn.execute("SELECT * FROM event ORDER BY detected_at DESC, id DESC").fetchall()
+    return conn.execute(
+        "SELECT * FROM event WHERE status = ? ORDER BY detected_at DESC, id DESC", (status,)
     ).fetchall()

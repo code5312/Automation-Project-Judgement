@@ -2,7 +2,7 @@
 
 KIPRIS Plus의 실제 특허 데이터를 검색·점수화해 사람이 먼저 검토할 후보의 우선순위를 보여주고, 사람의 IP 조치 판단을 이유·전제와 함께 append-only로 기록하는 도구다. 가짜 특허 데이터를 생성하지 않으며, 최종 판단은 항상 사람이 한다. 전체 설계는 [docs/DESIGN.md](docs/DESIGN.md), 진행 단계는 [docs/PIPELINE.md](docs/PIPELINE.md), 확인이 필요한 외부 사실은 [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md)를 참고한다.
 
-이 저장소는 현재 **단계 1(데이터 모델)**, **단계 2(수집·순위)** 를 완료했다. 평가 세트(`data/eval/ev_battery_cooling_v1.json`, 실제 KIPRIS 데이터 40건)는 담당자 mingyu가 2026-10-02에 확정했고, 기준선 75.0% → 80.0%로 완료 기준을 충족했다(`data/eval/README.md`, docs/PIPELINE.md 평가 지표 기록). **단계 3(트리아지·카드)** 은 자사 IP 포트폴리오 적재부터 진행 중이다(`data/portfolio/README.md`).
+이 저장소는 현재 **단계 1(데이터 모델)**, **단계 2(수집·순위)** 를 완료했다. 평가 세트(`data/eval/ev_battery_cooling_v1.json`, 실제 KIPRIS 데이터 40건)는 담당자 mingyu가 2026-10-02에 확정했고, 기준선 75.0% → 80.0%로 완료 기준을 충족했다(`data/eval/README.md`, docs/PIPELINE.md 평가 지표 기록). **단계 3(트리아지·카드)** 은 자사 IP 포트폴리오 적재(`data/portfolio/README.md`)와 GitHub 릴리스 → Event 입력 커넥터까지 진행했다.
 
 ## 설치와 실행
 
@@ -44,6 +44,12 @@ python -m ipauto.cli evaluate
 python -m ipauto.cli portfolio-load data/portfolio/demo_own_company_v1.json
 ```
 
+공개 GitHub 레포의 릴리스를 "오픈소스 공개" 사건(Event)으로 가져오려면(접근키 불필요, 재실행해도 `(source, source_ref)` 기준으로 중복 안 쌓임):
+
+```powershell
+python -m ipauto.cli ingest-github-releases cli cli
+```
+
 ## 환경 변수
 
 | 변수 | 필수 | 설명 |
@@ -66,13 +72,15 @@ data/portfolio/      자사 IP 포트폴리오 데모 데이터(JSON) + README.m
 src/ipauto/
   config.py          환경변수 로드, 키 마스킹
   connectors/kipris.py   KIPRIS 호출(fetch_all: 다중 검색어·페이지네이션, fetch_by_application_number: 재조회)·XML 파싱(defusedxml)·오류 분류
+  connectors/github.py   공개 GitHub releases API 호출(인증 불필요)
   scoring/           ipc.py(패밀리+주 신호), keywords.py(kiwipiepy 형태소 분석), bands.py — 관련도 점수·구간, rules.py — config/*.yaml 로더
   evaluation.py      평가 세트 로드·정확도/혼동행렬 측정
   portfolio.py       자사/외부 IP 포트폴리오 적재 (IPAsset)
-  db/                schema.sql, connection.py, repositories.py — SQLite 저장소(Judgment·Premise·IPAsset 등)
+  events.py          사건 정규화·적재 (Event; 현재는 GitHub 릴리스 → "오픈소스 공개")
+  db/                schema.sql, connection.py, repositories.py — SQLite 저장소(Judgment·Premise·IPAsset·Event 등)
   judgments/         service.py(게이트 B 검증), compare.py(집합 비교), migrate_json.py
   triage/ cards/ watch/   단계 3·4용 빈 인터페이스(아직 미구현)
-  cli.py             검색·재조회·평가·포트폴리오 적재·마이그레이션 CLI 진입점
+  cli.py             검색·재조회·평가·포트폴리오 적재·사건 수집·마이그레이션 CLI 진입점
 app/streamlit_app.py 검색 화면 + 게이트 B 판단 기록 폼
 tests/               단위 테스트 + fixtures/(모두 샘플 데이터, 실제 KIPRIS 응답·판단 기록 아님)
 ```
@@ -97,4 +105,5 @@ tests/               단위 테스트 + fixtures/(모두 샘플 데이터, 실�
 - 마이그레이션된 옛 판단 행은 검토 기술·검색어·담당자·재검토 기한이 실제 값이 아니라 "이전 데이터" 표시이며, 결정값도 원래의 관련도 판단이 아니라 사람 재확인을 유도하는 "타사 특허 확인 필요"로 일괄 표시된다(원래 판단은 `legacy_note`에 보존).
 - `ipauto.cli lookup`/`fetch_by_application_number`는 출원번호 전용 조회 API가 아니라 자유검색(`word`)에 출원번호를 그대로 넣어 재조회한다. KIPRIS가 출원번호를 자유검색 색인에 포함하는지 확인되지 않아, 결과가 없다고 해서 출원이 존재하지 않는다고 단정할 수 없다(docs/OPEN_QUESTIONS.md).
 - 평가 세트가 40건·한 기술 분야("전기차 배터리 냉각")뿐이라 개념/범용 임계값(현재 둘 다 70/40)과 주 IPC 신호 보너스(15점) 등은 폭넓게 검증된 값이 아니다. 확정된 평가 세트 기준 정확도는 80.0%(32/40, `docs/PIPELINE.md` 평가 지표 기록)이며, 차량+배터리 텍스트만으로 "보통" 밴드에 걸치는 경계 사례나 "냉각수 히팅파이프"처럼 냉각이 아닌 가열 기능을 가진 부품을 구분하는 문제가 남아 있다. 이런 의미 이해가 필요한 사례는 향후 LLM 분류(단계 3)로 보강하는 쪽을 검토한다.
-- 자사 IP 포트폴리오 적재(`ip_asset`)는 됐지만, 사건 감지·Link 연결·LLM 트리아지·판단 카드·전제 감시·Jira 연동은 아직 없다(단계 3 나머지~5).
+- 자사 IP 포트폴리오 적재(`ip_asset`)와 GitHub 릴리스 사건 수집(`event`)은 됐지만, Link 연결·LLM 트리아지·게이트 A·판단 카드·전제 감시·Jira 연동은 아직 없다(단계 3 나머지~5).
+- GitHub 커넥터는 공개 릴리스 목록을 주기적으로 다시 불러오는(폴링) 방식이다. 웹훅 수신은 아직 없고, 비공개 레포·인증이 필요한 호출(레이트 리밋 상향 등)도 지원하지 않는다.

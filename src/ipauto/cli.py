@@ -141,6 +141,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     portfolio.set_defaults(func=_run_portfolio_load)
 
+    github_events = subparsers.add_parser(
+        "ingest-github-releases",
+        help="Fetch a public GitHub repo's releases and normalize them into Event rows (단계 3 MVP: 오픈소스 공개)",
+    )
+    github_events.add_argument("owner", help="예: cli")
+    github_events.add_argument("repo", help="예: cli")
+    github_events.add_argument("--per-page", type=int, default=30, help="가져올 릴리스 수 (1-100, 기본값: 30)")
+    github_events.set_defaults(func=_run_ingest_github_releases)
+
     migrate = subparsers.add_parser(
         "migrate-judgments", help="Migrate legacy data/judgments.json rows into the SQLite ledger"
     )
@@ -219,6 +228,23 @@ def _run_portfolio_load(args: argparse.Namespace) -> int:
         return 1
 
     print(f"{path}에서 {len(ids)}건을 ip_asset({args.asset_kind})에 적재했습니다.")
+    return 0
+
+
+def _run_ingest_github_releases(args: argparse.Namespace) -> int:
+    from ipauto.connectors.github import GitHubError
+    from ipauto.db.connection import connect, init_db
+    from ipauto.events import ingest_github_releases
+
+    conn = connect()
+    init_db(conn)
+    try:
+        created, skipped = ingest_github_releases(conn, args.owner, args.repo, per_page=args.per_page)
+    except GitHubError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"{args.owner}/{args.repo}: 새 이벤트 {created}건, 이미 있던 이벤트 {skipped}건")
     return 0
 
 
