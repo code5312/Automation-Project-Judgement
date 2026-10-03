@@ -353,7 +353,7 @@ def _run_triage(args: argparse.Namespace) -> int:
     from ipauto.db.connection import connect, init_db
     from ipauto.db.repositories import fetch_event, fetch_ip_asset_by_id
     from ipauto.triage.llm_classifier import ClassificationFormatError, classify
-    from ipauto.triage.routing import TRIAGE_UNRELATED, decide_triage
+    from ipauto.triage.routing import TRIAGE_AMBIGUOUS, TRIAGE_UNRELATED, decide_triage
 
     conn = connect()
     init_db(conn)
@@ -411,6 +411,21 @@ def _run_triage(args: argparse.Namespace) -> int:
             ),
         )
         print("자동 종결 로그 기록함" if created else "이미 자동 종결 로그에 있음 (중복 기록 안 함)")
+    elif decision.outcome == TRIAGE_AMBIGUOUS:
+        from ipauto.db.repositories import GateAQueueInput, enqueue_gate_a
+
+        _queue_id, created = enqueue_gate_a(
+            conn,
+            GateAQueueInput(
+                event_id=args.event_id,
+                ip_asset_id=args.ip_asset_id,
+                keyword_priority=decision.keyword_priority,
+                reasons=decision.reasons,
+                llm_label=llm_result.label if llm_result else None,
+                llm_confidence=llm_result.confidence if llm_result else None,
+            ),
+        )
+        print("게이트 A 대기열에 올림" if created else "이미 게이트 A 대기열에 있음 (중복 기록 안 함)")
     return 0
 
 

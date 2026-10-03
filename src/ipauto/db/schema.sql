@@ -123,6 +123,25 @@ CREATE TABLE IF NOT EXISTS auto_close_log (
     UNIQUE (event_id, ip_asset_id)
 );
 
+-- Entries awaiting 게이트 A 사람 확인 (docs/DESIGN.md "애매: 게이트 A로
+-- 보내 사람이 검토 여부를 정한다"). Created when ipauto.triage.routing's
+-- decide_triage returns 애매; a human later resolves each one to either
+-- 관련 확정(판단 카드로 진행) or 무관 확정(기각).
+CREATE TABLE IF NOT EXISTS gate_a_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL REFERENCES event (id),
+    ip_asset_id INTEGER NOT NULL REFERENCES ip_asset (id),
+    keyword_priority TEXT NOT NULL,
+    llm_label TEXT,
+    llm_confidence REAL,
+    reasons TEXT NOT NULL,          -- '|'로 구분된 애매 판정 근거 목록
+    queued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    status TEXT NOT NULL DEFAULT '대기' CHECK (status IN ('대기', '관련 확정', '무관 확정')),
+    resolution_note TEXT,
+    resolved_at TEXT,
+    UNIQUE (event_id, ip_asset_id)
+);
+
 CREATE TABLE IF NOT EXISTS review_request (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     original_judgment_id INTEGER NOT NULL REFERENCES judgment (id),

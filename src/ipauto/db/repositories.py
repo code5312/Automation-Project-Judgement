@@ -13,6 +13,10 @@ docs/DESIGN.md expects to change after the fact: 사람 확인 여부.
 ``auto_close_log`` (단계 3) is deduped by ``(event_id, ip_asset_id)`` like
 ``event``, plus an explicit ``record_audit_result`` UPDATE for the sample-
 audit outcome (docs/DESIGN.md "자동 종결하되 표본 감사로 검증").
+``gate_a_queue`` (단계 3) follows the same pattern — deduped insert
+(``enqueue_gate_a``) plus one ``resolve_gate_a`` UPDATE for the human's
+관련/무관 확정 decision (docs/DESIGN.md "애매: 게이트 A로 보내 사람이
+검토 여부를 정한다").
 """
 
 from __future__ import annotations
@@ -56,6 +60,13 @@ AUDIT_STATUS_PENDING = "대기"
 AUDIT_STATUS_CONFIRMED = "확인 완료"
 AUDIT_STATUS_MISSED = "누락 발견"
 AUDIT_STATUS_CHOICES = (AUDIT_STATUS_PENDING, AUDIT_STATUS_CONFIRMED, AUDIT_STATUS_MISSED)
+
+GATE_A_STATUS_PENDING = "대기"
+GATE_A_STATUS_RELATED = "관련 확정"
+GATE_A_STATUS_UNRELATED = "무관 확정"
+GATE_A_STATUS_CHOICES = (GATE_A_STATUS_PENDING, GATE_A_STATUS_RELATED, GATE_A_STATUS_UNRELATED)
+
+_REASON_SEPARATOR = "|"
 
 
 @dataclass(frozen=True)
@@ -506,3 +517,77 @@ def auto_close_miss_rate(conn: sqlite3.Connection) -> float | None:
     if not row["audited"]:
         return None
     return row["missed"] / row["audited"]
+
+
+@dataclass(frozen=True)
+class GateAQueueInput:
+    event_id: int
+    ip_asset_id: int
+    keyword_priority: str
+    reasons: list[str]
+    llm_label: str | None = None
+    llm_confidence: float | None = None
+
+
+def enqueue_gate_a(conn: sqlite3.Connection, data: GateAQueueInput) -> tuple[int, bool]:
+    """Insert one 게이트 A queue row, deduped by (event_id, ip_asset_id).
+
+    Returns (id, was_created): was_created is False when this pair was
+    already queued, in which case nothing was written.
+    """
+    existing = fetch_gate_a_entry_for_pair(conn, data.event_id, data.ip_asset_id)
+    if existing is not None:
+        return existing["id"], False
+
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            INSERT INTO gate_a_queue (event_id, ip_asset_id, keyword_priority, llm_label, llm_confidence, reasons)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data.event_id,
+                data.ip_asset_id,
+                data.keyword_priority,
+                data.llm_label,
+                data.llm_confidence,
+                _REASON_SEPARATOR.join(data.reasons),
+            ),
+        )
+        queue_id = cursor.lastrowid
+    return queue_id, True
+
+
+def fetch_gate_a_entry_for_pair(conn: sqlite3.Connection, event_id: int, ip_asset_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM gate_a_queue WHERE event_id = ? AND ip_asset_id = ?", (event_id, ip_asset_id)
+    ).fetchone()
+
+
+def fetch_gate_a_queue(conn: sqlite3.Connection, status: str = GATE_A_STATUS_PENDING) -> list[sqlite3.Row]:
+    """Queue rows with the given status (대기 by default), oldest first."""
+    return conn.execute(
+        "SELECT * FROM gate_a_queue WHERE status = ? ORDER BY queued_at", (status,)
+    ).fetchall()
+
+
+def gate_a_reasons(row: sqlite3.Row) -> list[str]:
+    """Split a gate_a_queue row's stored reasons string back into a list."""
+    return [reason for reason in row["reasons"].split(_REASON_SEPARATOR) if reason]
+
+
+def resolve_gate_a(conn: sqlite3.Connection, queue_id: int, status: str, resolution_note: str | None = None) -> None:
+    """Record a human's 게이트 A 확인 decision (관련 확정 또는 무관 확정)."""
+    if status not in (GATE_A_STATUS_RELATED, GATE_A_STATUS_UNRELATED):
+        raise ValueError(f"status must be {GATE_A_STATUS_RELATED!r} or {GATE_A_STATUS_UNRELATED!r}, got {status!r}")
+    with transaction(conn):
+        cursor = conn.execute(
+            """
+            UPDATE gate_a_queue
+            SET status = ?, resolution_note = ?, resolved_at = ?
+            WHERE id = ?
+            """,
+            (status, resolution_note, _now_iso(), queue_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"No gate_a_queue row with id {queue_id}.")

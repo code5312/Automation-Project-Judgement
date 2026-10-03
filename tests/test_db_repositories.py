@@ -13,11 +13,14 @@ from ipauto.db.repositories import (
     AUDIT_STATUS_CONFIRMED,
     AUDIT_STATUS_MISSED,
     EVENT_STATUS_TRIAGED,
+    GATE_A_STATUS_RELATED,
+    GATE_A_STATUS_UNRELATED,
     LINK_BASIS_IPC_MATCH,
     LINK_OBJECT_EVENT,
     LINK_OBJECT_IP_ASSET,
     AutoCloseLogInput,
     EventInput,
+    GateAQueueInput,
     IpAssetInput,
     JudgmentInput,
     LinkInput,
@@ -25,11 +28,14 @@ from ipauto.db.repositories import (
     auto_close_miss_rate,
     confirm_link,
     count_judgments,
+    enqueue_gate_a,
     fetch_audit_queue,
     fetch_auto_close_log_for_pair,
     fetch_auto_close_logs,
     fetch_event_by_source_ref,
     fetch_events,
+    fetch_gate_a_entry_for_pair,
+    fetch_gate_a_queue,
     fetch_ip_asset,
     fetch_ip_asset_by_id,
     fetch_ip_assets,
@@ -40,7 +46,9 @@ from ipauto.db.repositories import (
     fetch_premises_for_judgment,
     find_link,
     find_migrated_judgment,
+    gate_a_reasons,
     record_audit_result,
+    resolve_gate_a,
     select_audit_sample,
 )
 from ipauto.db.repositories import log_auto_close as insert_auto_close_log
@@ -402,3 +410,88 @@ def test_auto_close_miss_rate_counts_only_audited_rows(conn):
     record_audit_result(conn, log_b, AUDIT_STATUS_MISSED)
 
     assert auto_close_miss_rate(conn) == 0.5
+
+
+def test_enqueue_gate_a_inserts_new_row(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+
+    queue_id, created = enqueue_gate_a(
+        conn,
+        GateAQueueInput(
+            event_id=event_id,
+            ip_asset_id=asset_id,
+            keyword_priority="검토 우선순위 보통",
+            reasons=["확신도 중간대: LLM confidence=0.5", "필수 정보 누락: 사건 발생/공개 시각 없음"],
+        ),
+    )
+
+    assert created is True
+    row = fetch_gate_a_entry_for_pair(conn, event_id, asset_id)
+    assert row["id"] == queue_id
+    assert row["status"] == "대기"
+    assert gate_a_reasons(row) == ["확신도 중간대: LLM confidence=0.5", "필수 정보 누락: 사건 발생/공개 시각 없음"]
+
+
+def test_enqueue_gate_a_is_deduped_by_event_and_asset(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    data = GateAQueueInput(
+        event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 보통", reasons=["샘플 근거"]
+    )
+
+    first_id, first_created = enqueue_gate_a(conn, data)
+    second_id, second_created = enqueue_gate_a(conn, data)
+
+    assert first_created is True
+    assert second_created is False
+    assert first_id == second_id
+    assert conn.execute("SELECT COUNT(*) AS n FROM gate_a_queue").fetchone()["n"] == 1
+
+
+def test_fetch_gate_a_queue_defaults_to_pending_only(conn):
+    event_id, asset_a = _seed_event_and_asset(conn, application_number="SAMPLE-ASSET-0000001")
+    _, asset_b = _seed_event_and_asset(conn, source_ref="SAMPLE-RELEASE-2", application_number="SAMPLE-ASSET-0000002")
+    queue_id, _ = enqueue_gate_a(
+        conn,
+        GateAQueueInput(event_id=event_id, ip_asset_id=asset_a, keyword_priority="검토 우선순위 보통", reasons=["a"]),
+    )
+    enqueue_gate_a(
+        conn,
+        GateAQueueInput(event_id=event_id, ip_asset_id=asset_b, keyword_priority="검토 우선순위 보통", reasons=["b"]),
+    )
+
+    assert len(fetch_gate_a_queue(conn)) == 2
+
+    resolve_gate_a(conn, queue_id, GATE_A_STATUS_RELATED)
+    assert len(fetch_gate_a_queue(conn)) == 1
+    assert len(fetch_gate_a_queue(conn, status=GATE_A_STATUS_RELATED)) == 1
+
+
+def test_resolve_gate_a_rejects_invalid_status(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    queue_id, _ = enqueue_gate_a(
+        conn,
+        GateAQueueInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 보통", reasons=["a"]),
+    )
+
+    with pytest.raises(ValueError):
+        resolve_gate_a(conn, queue_id, "대기")
+
+
+def test_resolve_gate_a_rejects_unknown_id(conn):
+    with pytest.raises(ValueError):
+        resolve_gate_a(conn, 999999, GATE_A_STATUS_UNRELATED)
+
+
+def test_resolve_gate_a_records_note_and_timestamp(conn):
+    event_id, asset_id = _seed_event_and_asset(conn)
+    queue_id, _ = enqueue_gate_a(
+        conn,
+        GateAQueueInput(event_id=event_id, ip_asset_id=asset_id, keyword_priority="검토 우선순위 보통", reasons=["a"]),
+    )
+
+    resolve_gate_a(conn, queue_id, GATE_A_STATUS_UNRELATED, resolution_note="샘플 메모")
+
+    row = conn.execute("SELECT * FROM gate_a_queue WHERE id = ?", (queue_id,)).fetchone()
+    assert row["status"] == GATE_A_STATUS_UNRELATED
+    assert row["resolution_note"] == "샘플 메모"
+    assert row["resolved_at"]
